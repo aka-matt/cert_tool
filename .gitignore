@@ -7,7 +7,7 @@ release.properties
 dependency-reduced-pom.xml
 buildNumber.properties
 .mvn/timing.properties
-# https://maven.apache.org/tools/wrapper/#Usage_with_or_without_Binary_JAR
+# https://maven.apache.org/tools/wrapper/#Usage_with_or_without_Binary_JR
 .mvn/wrapper/maven-wrapper.jar
 
 # Eclipse m2e generated files
@@ -15,3 +15,35 @@ buildNumber.properties
 .project
 # JDT-specific (Eclipse Java Development Tools)
 .classpath
+
+# IDE
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+.classpath
+.project
+.settings/
+nbproject/private/
+nbbuild/
+dist/
+nbdist/
+.nb-gradle/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# CycloneDX and JaCoCo reports (intermediate)
+*.cdx.json
+*.cdx.xml
+
+# User settings (local overrides) — never commit a real settings.json
+**/settings.json
+**/settings.json.broken-*
+
+# Generated test material outside the repo (test-fixtures writes to tmp dirs)
