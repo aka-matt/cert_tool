@@ -10,6 +10,7 @@ import io.github.certtool.app.task.ConvertTask;
 import io.github.certtool.app.task.ExportReportTask;
 import io.github.certtool.app.task.LoadKeyStoreTask;
 import io.github.certtool.app.task.PasteBase64LoadTask;
+import io.github.certtool.app.task.SelectedBase64LoadTask;
 import io.github.certtool.app.theme.AtlantaFxThemeService;
 import io.github.certtool.app.theme.ThemeService;
 import io.github.certtool.app.viewmodel.ComplianceViewModel;
@@ -141,6 +142,11 @@ public final class AppComposition {
     /** Builds a Base64 paste loading task on demand using the active password provider. */
     public PasteBase64LoadTask pasteBase64LoadTask(String input) {
         return new PasteBase64LoadTask(loader, input, activePasswordProvider);
+    }
+
+    /** Builds a selected-format Base64 loading task using the active password provider. */
+    public SelectedBase64LoadTask selectedBase64LoadTask(String input, KeyStoreContainerType container) {
+        return new SelectedBase64LoadTask(loader, input, container, activePasswordProvider);
     }
 
     /** Builds an {@link AssessmentTask}. */

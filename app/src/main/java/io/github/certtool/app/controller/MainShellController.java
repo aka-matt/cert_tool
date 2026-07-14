@@ -5,14 +5,13 @@ import io.github.certtool.app.settings.Settings;
 import io.github.certtool.app.task.LoadKeyStoreTask;
 import io.github.certtool.domain.keystore.ContentEncoding;
 import io.github.certtool.domain.keystore.KeyStoreContainerType;
-import io.github.certtool.keystorecore.input.Base64Decoder;
-import io.github.certtool.keystorecore.input.InvalidBase64Exception;
 import io.github.certtool.keystorecore.load.KeyStoreLoadResult;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.logging.Level;
 import java.util.logging.Logger;
+import java.util.Optional;
 import javafx.concurrent.Worker;
 import javafx.geometry.Insets;
 import javafx.scene.Node;
@@ -286,26 +285,29 @@ public final class MainShellController {
     }
 
     private void submitPastedLoadTask(javafx.concurrent.Task<KeyStoreLoadResult> task, String input) {
-        bindLoadTask(task, () -> {
-            KeyStoreLoadResult result = task.getValue();
-            if (result != null && result.isSuccess()) {
-                composition.inspectController().onLoadResult(result);
-                statusMessage.setText("Pasted keystore loaded.");
-            } else if (isIndeterminate(result)) {
-                chooseContainerType().ifPresent(container -> submitSelectedContainerLoad(input, container));
-            } else {
-                statusMessage.setText("Could not load pasted keystore.");
-            }
-        });
+        bindLoadTask(task, () -> handlePastedLoadResult(input, task.getValue(), this::chooseContainerType));
     }
 
-    private boolean isIndeterminate(KeyStoreLoadResult result) {
+    /** Routes a completed initial paste probe without exposing the pasted value in UI output. */
+    void handlePastedLoadResult(
+            String input, KeyStoreLoadResult result, ContainerTypeSelector containerTypeSelector) {
+        if (result != null && result.isSuccess()) {
+            composition.inspectController().onLoadResult(result);
+            setStatus("Pasted keystore loaded.");
+        } else if (isAmbiguous(result)) {
+            containerTypeSelector.choose().ifPresent(container -> submitSelectedContainerLoad(input, container));
+        } else {
+            setStatus("Could not load pasted keystore.");
+        }
+    }
+
+    private boolean isAmbiguous(KeyStoreLoadResult result) {
         return result != null
                 && result.failure() != null
-                && result.failure().reason() == io.github.certtool.domain.error.LoadFailureReason.UNSUPPORTED_FORMAT;
+                && result.failure().reason() == io.github.certtool.domain.error.LoadFailureReason.AMBIGUOUS_CONTAINER;
     }
 
-    private java.util.Optional<KeyStoreContainerType> chooseContainerType() {
+    private Optional<KeyStoreContainerType> chooseContainerType() {
         ChoiceDialog<KeyStoreContainerType> dialog = new ChoiceDialog<>(
                 KeyStoreContainerType.JKS, KeyStoreContainerType.JKS, KeyStoreContainerType.BCFKS);
         dialog.setTitle("Select KeyStore format");
@@ -316,22 +318,14 @@ public final class MainShellController {
     }
 
     private void submitSelectedContainerLoad(String input, KeyStoreContainerType container) {
-        byte[] bytes;
-        try {
-            bytes = Base64Decoder.decode(input);
-        } catch (InvalidBase64Exception e) {
-            statusMessage.setText("Could not load pasted keystore.");
-            return;
-        }
-
-        LoadKeyStoreTask task = composition.loadTask(bytes, container);
+        javafx.concurrent.Task<KeyStoreLoadResult> task = composition.selectedBase64LoadTask(input, container);
         bindLoadTask(task, () -> {
             KeyStoreLoadResult result = task.getValue();
             if (result != null && result.isSuccess()) {
                 composition.inspectController().onLoadResult(result);
-                statusMessage.setText("Pasted keystore loaded.");
+                setStatus("Pasted keystore loaded.");
             } else {
-                statusMessage.setText("Could not load pasted keystore.");
+                setStatus("Could not load pasted keystore.");
             }
         });
     }
@@ -340,12 +334,23 @@ public final class MainShellController {
         task.stateProperty().addListener((obs, oldS, newS) -> updateProgress(newS, task.getProgress()));
         task.messageProperty().addListener((obs, oldM, newM) -> {
             if (newM != null && !newM.isEmpty()) {
-                statusMessage.setText(newM);
+                setStatus(newM);
             }
         });
         task.setOnSucceeded(evt -> onSucceeded.run());
-        task.setOnFailed(evt -> statusMessage.setText("Could not load pasted keystore."));
+        task.setOnFailed(evt -> setStatus("Could not load pasted keystore."));
         composition.backgroundExecutor().submit(task);
+    }
+
+    private void setStatus(String message) {
+        if (statusMessage != null) {
+            statusMessage.setText(message);
+        }
+    }
+
+    @FunctionalInterface
+    interface ContainerTypeSelector {
+        Optional<KeyStoreContainerType> choose();
     }
 
     private void updateProgress(Worker.State state, double progressValue) {

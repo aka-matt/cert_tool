@@ -53,7 +53,9 @@ public final class PasteBase64LoadTask extends Task<KeyStoreLoadResult> {
             if (jks.isSuccess() != bcfks.isSuccess()) {
                 return loaded(jks.isSuccess() ? jks : bcfks);
             }
-            return failed(LoadFailureReason.UNSUPPORTED_FORMAT, LOAD_FAILURE_MESSAGE);
+            return failed(
+                    jks.isSuccess() ? LoadFailureReason.AMBIGUOUS_CONTAINER : LoadFailureReason.UNSUPPORTED_FORMAT,
+                    LOAD_FAILURE_MESSAGE);
         } finally {
             Arrays.fill(bytes, (byte) 0);
         }

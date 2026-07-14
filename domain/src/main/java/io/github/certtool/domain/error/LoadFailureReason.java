@@ -12,6 +12,8 @@ public enum LoadFailureReason {
     FILE_NOT_READABLE,
     EMPTY_INPUT,
     INVALID_BASE64,
+    /** Both supported container probes loaded successfully, so user selection is required. */
+    AMBIGUOUS_CONTAINER,
     UNSUPPORTED_FORMAT,
     WRONG_STORE_PASSWORD,
     CORRUPTED_KEYSTORE,

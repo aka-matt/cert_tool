@@ -14,11 +14,17 @@ import io.github.certtool.app.viewmodel.InspectViewModel;
 import io.github.certtool.app.viewmodel.RuntimeViewModel;
 import io.github.certtool.compliance.core.AssessmentEngine;
 import io.github.certtool.compliance.core.DefaultRules;
+import io.github.certtool.domain.error.LoadFailure;
+import io.github.certtool.domain.error.LoadFailureReason;
+import io.github.certtool.domain.keystore.KeyStoreContainerType;
+import io.github.certtool.keystorecore.load.KeyStoreLoadResult;
 import io.github.certtool.keystorecore.load.KeyStoreLoader;
 import io.github.certtool.keystorecore.password.FixedPasswordProvider;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.AbstractExecutorService;
 import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.DisplayName;
@@ -61,6 +67,70 @@ class MainShellControllerTest {
                 .extracting(ILoggingEvent::getFormattedMessage)
                 .doesNotContain(pastedBase64);
         assertThat(executor.submittedTasks()).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("unique pasted result is handed to Inspect without a selection or retry")
+    void uniquePastedResultIsHandedToInspect() throws Exception {
+        RecordingExecutor executor = new RecordingExecutor();
+        AppComposition composition = composition(executor);
+        MainShellController controller = new MainShellController(composition, null);
+        AtomicInteger selections = new AtomicInteger();
+        KeyStoreLoadResult success = KeyStoreLoadResult.success(KeyStoreContainerType.JKS, "test", "1", List.of());
+
+        controller.handlePastedLoadResult("secret", success, () -> {
+            selections.incrementAndGet();
+            return Optional.of(KeyStoreContainerType.BCFKS);
+        });
+
+        assertThat(composition.inspectVm().getLoadResult()).isNotNull();
+        assertThat(composition.inspectVm().getLoadResult().container()).isEqualTo(KeyStoreContainerType.JKS);
+        assertThat(selections).hasValue(0);
+        assertThat(executor.submittedTasks()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("no matching container does not open selection or submit a retry")
+    void noMatchingContainerDoesNotOpenSelectionOrRetry() throws Exception {
+        RecordingExecutor executor = new RecordingExecutor();
+        MainShellController controller = new MainShellController(composition(executor), null);
+        AtomicInteger selections = new AtomicInteger();
+
+        controller.handlePastedLoadResult("secret", failure(LoadFailureReason.UNSUPPORTED_FORMAT), () -> {
+            selections.incrementAndGet();
+            return Optional.of(KeyStoreContainerType.JKS);
+        });
+
+        assertThat(selections).hasValue(0);
+        assertThat(executor.submittedTasks()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("ambiguous pasted result retries the selected container on the executor")
+    void ambiguousPastedResultRetriesSelectedContainer() throws Exception {
+        RecordingExecutor executor = new RecordingExecutor();
+        MainShellController controller = new MainShellController(composition(executor), null);
+
+        controller.handlePastedLoadResult(
+                "c2VjcmV0", failure(LoadFailureReason.AMBIGUOUS_CONTAINER), () -> Optional.of(KeyStoreContainerType.BCFKS));
+
+        assertThat(executor.submittedTasks()).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("cancelled ambiguous selection does not submit a retry")
+    void cancelledAmbiguousSelectionDoesNotSubmitARetry() throws Exception {
+        RecordingExecutor executor = new RecordingExecutor();
+        MainShellController controller = new MainShellController(composition(executor), null);
+
+        controller.handlePastedLoadResult(
+                "c2VjcmV0", failure(LoadFailureReason.AMBIGUOUS_CONTAINER), Optional::<KeyStoreContainerType>empty);
+
+        assertThat(executor.submittedTasks()).isEmpty();
+    }
+
+    private static KeyStoreLoadResult failure(LoadFailureReason reason) {
+        return new KeyStoreLoadResult(false, null, null, null, List.of(), LoadFailure.of(reason, "generic"));
     }
 
     private static AppComposition composition(RecordingExecutor executor) throws Exception {

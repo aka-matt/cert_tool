@@ -73,6 +73,27 @@ class PasteBase64LoadTaskTest {
         assertThat(probedContainers).containsExactly(KeyStoreContainerType.JKS, KeyStoreContainerType.BCFKS);
         assertThat(result.isSuccess()).isFalse();
         assertThat(result.failure()).isEqualTo(LoadFailure.of(
+                LoadFailureReason.AMBIGUOUS_CONTAINER, "Could not determine the keystore container"));
+    }
+
+    @Test
+    @DisplayName("call() reports unsupported format when neither container probe succeeds")
+    void callReportsUnsupportedFormatWhenNeitherContainerProbeSucceeds() {
+        PasteBase64LoadTask task = new PasteBase64LoadTask(
+                (bytes, container, passwords) -> new KeyStoreLoadResult(
+                        false,
+                        null,
+                        null,
+                        null,
+                        List.of(),
+                        LoadFailure.of(LoadFailureReason.UNSUPPORTED_FORMAT, "unsupported")),
+                Base64.getEncoder().encodeToString(new byte[] {1}),
+                new FixedPasswordProvider(new char[0], Map.of()));
+
+        KeyStoreLoadResult result = task.call();
+
+        assertThat(result.isSuccess()).isFalse();
+        assertThat(result.failure()).isEqualTo(LoadFailure.of(
                 LoadFailureReason.UNSUPPORTED_FORMAT, "Could not determine the keystore container"));
     }
 }
