@@ -118,7 +118,8 @@ public final class CertificateGenerator {
             Duration validity) {
         try {
             X500Name subjectName = X500Name.getInstance(subjectDn.getEncoded());
-            X500Name issuerName = X500Name.getInstance(issuer.getIssuerX500Principal().getEncoded());
+            // Use the issuer cert's SUBJECT as the leaf's issuer DN.
+            X500Name issuerName = X500Name.getInstance(issuer.getSubjectX500Principal().getEncoded());
             SubjectPublicKeyInfo spki =
                     SubjectPublicKeyInfo.getInstance(subjectKeyPair.getPublic().getEncoded());
             BigInteger serial = new BigInteger(64, new SecureRandom());
@@ -142,5 +143,96 @@ public final class CertificateGenerator {
         } catch (Exception e) {
             throw new IllegalStateException("Failed to build issuer-signed certificate", e);
         }
+    }
+
+    /**
+     * Builds a fresh certificate that preserves the original's subject, issuer, public key, and
+     * validity window, but signs the TBS with the supplied (deliberately wrong) private key. The
+     * resulting cert is structurally self-signed (subject==issuer) but its signature will not
+     * verify with its embedded public key — perfect for negative chain-validation tests.
+     */
+    public static X509Certificate withTamperedSignature(X509Certificate original, PrivateKey wrongKey) {
+        try {
+            X500Name subjectName = X500Name.getInstance(original.getSubjectX500Principal().getEncoded());
+            X500Name issuerName = X500Name.getInstance(original.getIssuerX500Principal().getEncoded());
+            SubjectPublicKeyInfo spki =
+                    SubjectPublicKeyInfo.getInstance(original.getPublicKey().getEncoded());
+            BigInteger serial = original.getSerialNumber();
+            Date notBefore = original.getNotBefore();
+            Date notAfter = original.getNotAfter();
+
+            X509v3CertificateBuilder builder =
+                    new JcaX509v3CertificateBuilder(
+                            issuerName,
+                            serial,
+                            notBefore,
+                            notAfter,
+                            subjectName,
+                            original.getPublicKey());
+            // Use SHA256withRSA by default — caller can override via another overload if needed.
+            ContentSigner signer = new JcaContentSignerBuilder("SHA256withRSA")
+                    .setProvider(BouncyCastleProvider.PROVIDER_NAME)
+                    .build(wrongKey);
+            return new JcaX509CertificateConverter()
+                    .setProvider(BouncyCastleProvider.PROVIDER_NAME)
+                    .getCertificate(builder.build(signer));
+        } catch (Exception e) {
+            throw new IllegalStateException("Failed to build tampered certificate", e);
+        }
+    }
+
+    /**
+     * Decorator hook: lets tests add arbitrary extensions to a freshly built self-signed
+     * certificate. The {@code signingKey} must match {@code original.getPublicKey()}.
+     */
+    public static X509Certificate withExtensions(
+            X509Certificate original,
+            PrivateKey signingKey,
+            java.util.function.Consumer<X509v3CertificateBuilder> decorator) {
+        try {
+            X500Name subjectName = X500Name.getInstance(original.getSubjectX500Principal().getEncoded());
+            X500Name issuerName = X500Name.getInstance(original.getIssuerX500Principal().getEncoded());
+            Date notBefore = original.getNotBefore();
+            Date notAfter = original.getNotAfter();
+            BigInteger serial = original.getSerialNumber();
+
+            X509v3CertificateBuilder builder =
+                    new JcaX509v3CertificateBuilder(
+                            issuerName,
+                            serial,
+                            notBefore,
+                            notAfter,
+                            subjectName,
+                            original.getPublicKey());
+            decorator.accept(builder);
+            ContentSigner signer = new JcaContentSignerBuilder("SHA256withRSA")
+                    .setProvider(BouncyCastleProvider.PROVIDER_NAME)
+                    .build(signingKey);
+            return new JcaX509CertificateConverter()
+                    .setProvider(BouncyCastleProvider.PROVIDER_NAME)
+                    .getCertificate(builder.build(signer));
+        } catch (Exception e) {
+            throw new IllegalStateException("Failed to build certificate with extensions", e);
+        }
+    }
+
+    /**
+     * Adds an unrecognized critical extension with the given OID. Tests use this to assert that
+     * the parser records the OID without crashing.
+     */
+    public static X509Certificate withUnrecognizedCriticalExtension(
+            X509Certificate original, PrivateKey signingKey, String oid) {
+        return withExtensions(original, signingKey, b -> {
+            try {
+                org.bouncycastle.asn1.x509.Extension unrecognized =
+                        new org.bouncycastle.asn1.x509.Extension(
+                                new org.bouncycastle.asn1.ASN1ObjectIdentifier(oid),
+                                /* critical */ true,
+                                new byte[] {0x01, 0x02, 0x03});
+                b.addExtension(unrecognized);
+            } catch (Exception e) {
+                throw new IllegalStateException("Failed to add unrecognized extension", e);
+            }
+        });
     }
 }
