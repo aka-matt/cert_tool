@@ -1,0 +1,24 @@
+{
+  "id": "FIPS_140_2_LEGACY_ASSESSMENT",
+  "name": "FIPS 140-2 Compatibility Assessment (Legacy)",
+  "targetStandard": "FIPS_140_2",
+  "schemaVersion": "2026-01-01",
+  "allowedAlgorithms": ["RSA", "EC", "DSA"],
+  "disallowedAlgorithms": ["MD2", "MD5"],
+  "minimumKeySizes": {
+    "RSA": 2048,
+    "EC": 224,
+    "DSA": 2048
+  },
+  "allowedCurves": ["P-224", "P-256", "P-384", "P-521"],
+  "sha1Policy": "WARN",
+  "expirationPolicy": "WARN",
+  "unknownAlgorithmPolicy": "WARNING",
+  "jksPrivateKeyPolicy": "WARNING",
+  "requiredRuntimeProvider": "BCFIPS",
+  "approvedOnlyRequired": true,
+  "references": [
+    "https://csrc.nist.gov/publications/detail/fips/140/2/final",
+    "https://csrc.nist.gov/projects/fips-140-3"
+  ]
+}
