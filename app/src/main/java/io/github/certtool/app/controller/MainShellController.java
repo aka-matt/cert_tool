@@ -5,7 +5,7 @@ import io.github.certtool.app.settings.Settings;
 import io.github.certtool.app.task.LoadKeyStoreTask;
 import io.github.certtool.domain.keystore.ContentEncoding;
 import io.github.certtool.domain.keystore.KeyStoreContainerType;
-import io.github.certtool.keystorecore.load.KeyStoreLoadResult;
+import io.github.certtool.domain.load.KeyStoreLoadResult;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;

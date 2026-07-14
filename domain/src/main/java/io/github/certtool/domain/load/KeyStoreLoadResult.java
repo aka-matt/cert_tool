@@ -1,4 +1,4 @@
-package io.github.certtool.keystorecore.load;
+package io.github.certtool.domain.load;
 
 import io.github.certtool.domain.error.LoadFailure;
 import io.github.certtool.domain.keystore.KeyStoreContainerType;

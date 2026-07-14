@@ -3,7 +3,7 @@ package io.github.certtool.app.task;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import io.github.certtool.domain.keystore.KeyStoreContainerType;
-import io.github.certtool.keystorecore.load.KeyStoreLoadResult;
+import io.github.certtool.domain.load.KeyStoreLoadResult;
 import io.github.certtool.keystorecore.load.KeyStoreLoader;
 import io.github.certtool.keystorecore.password.FixedPasswordProvider;
 import io.github.certtool.testfixtures.CertificateGenerator;

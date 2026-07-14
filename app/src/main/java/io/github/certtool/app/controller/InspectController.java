@@ -1,8 +1,8 @@
 package io.github.certtool.app.controller;
 
 import io.github.certtool.app.viewmodel.InspectViewModel;
-import io.github.certtool.keystorecore.load.KeyStoreLoadResult;
-import io.github.certtool.keystorecore.load.LoadedEntry;
+import io.github.certtool.domain.load.KeyStoreLoadResult;
+import io.github.certtool.domain.load.LoadedEntry;
 import java.security.cert.Certificate;
 import java.util.List;
 import java.util.Objects;

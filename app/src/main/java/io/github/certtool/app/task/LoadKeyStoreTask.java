@@ -1,7 +1,7 @@
 package io.github.certtool.app.task;
 
 import io.github.certtool.domain.keystore.KeyStoreContainerType;
-import io.github.certtool.keystorecore.load.KeyStoreLoadResult;
+import io.github.certtool.domain.load.KeyStoreLoadResult;
 import io.github.certtool.keystorecore.load.KeyStoreLoader;
 import io.github.certtool.keystorecore.password.PasswordProvider;
 import javafx.concurrent.Task;

@@ -2,8 +2,8 @@ package io.github.certtool.app.viewmodel;
 
 import io.github.certtool.domain.keystore.EntryType;
 import io.github.certtool.domain.keystore.KeyStoreContainerType;
-import io.github.certtool.keystorecore.load.KeyStoreLoadResult;
-import io.github.certtool.keystorecore.load.LoadedEntry;
+import io.github.certtool.domain.load.KeyStoreLoadResult;
+import io.github.certtool.domain.load.LoadedEntry;
 import java.security.cert.Certificate;
 import java.util.ArrayList;
 import java.util.Collections;
