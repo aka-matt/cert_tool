@@ -23,11 +23,15 @@ public final class PasteBase64LoadTask extends Task<KeyStoreLoadResult> {
 
     private static final String LOAD_FAILURE_MESSAGE = "Could not determine the keystore container";
 
-    private final KeyStoreLoader loader;
+    private final KeyStoreProbe loader;
     private final String input;
     private final PasswordProvider passwordProvider;
 
     public PasteBase64LoadTask(KeyStoreLoader loader, String input, PasswordProvider passwordProvider) {
+        this(Objects.requireNonNull(loader, "loader")::load, input, passwordProvider);
+    }
+
+    PasteBase64LoadTask(KeyStoreProbe loader, String input, PasswordProvider passwordProvider) {
         this.loader = Objects.requireNonNull(loader, "loader");
         this.input = Objects.requireNonNull(input, "input");
         this.passwordProvider = Objects.requireNonNull(passwordProvider, "passwordProvider");
@@ -45,12 +49,9 @@ public final class PasteBase64LoadTask extends Task<KeyStoreLoadResult> {
 
         try {
             KeyStoreLoadResult jks = loader.load(bytes, KeyStoreContainerType.JKS, passwordProvider);
-            if (jks.isSuccess()) {
-                return loaded(jks);
-            }
             KeyStoreLoadResult bcfks = loader.load(bytes, KeyStoreContainerType.BCFKS, passwordProvider);
-            if (bcfks.isSuccess()) {
-                return loaded(bcfks);
+            if (jks.isSuccess() != bcfks.isSuccess()) {
+                return loaded(jks.isSuccess() ? jks : bcfks);
             }
             return failed(LoadFailureReason.UNSUPPORTED_FORMAT, LOAD_FAILURE_MESSAGE);
         } finally {
@@ -72,8 +73,13 @@ public final class PasteBase64LoadTask extends Task<KeyStoreLoadResult> {
     private void tryMessage(String message) {
         try {
             updateMessage(message);
-        } catch (RuntimeException ignored) {
+        } catch (IllegalStateException ignored) {
             // Headless calls do not initialize the JavaFX toolkit.
         }
+    }
+
+    @FunctionalInterface
+    interface KeyStoreProbe {
+        KeyStoreLoadResult load(byte[] bytes, KeyStoreContainerType container, PasswordProvider passwordProvider);
     }
 }
