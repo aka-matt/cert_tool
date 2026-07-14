@@ -41,8 +41,12 @@ class ConvertControllerTest {
     void targetChosen() {
         ConvertViewModel vm = new ConvertViewModel();
         ConvertController c = new ConvertController(vm);
-        c.onTargetChosen(Path.of("/tmp/out.jks"));
-        assertThat(c.viewModel().getTargetPath()).isEqualTo("/tmp/out.jks");
+        Path target = Path.of("/tmp/out.jks");
+        c.onTargetChosen(target);
+        // Compare via Path.toString() on both sides so the assertion is platform-neutral:
+        // Path.of("/tmp/...").toString() normalises to backslashes on Windows but keeps
+        // forward slashes on Linux, matching what the controller stores.
+        assertThat(c.viewModel().getTargetPath()).isEqualTo(target.toString());
     }
 
     @Test
