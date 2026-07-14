@@ -5,6 +5,8 @@ import io.github.certtool.app.settings.Settings;
 import io.github.certtool.app.task.LoadKeyStoreTask;
 import io.github.certtool.domain.keystore.ContentEncoding;
 import io.github.certtool.domain.keystore.KeyStoreContainerType;
+import io.github.certtool.keystorecore.input.Base64Decoder;
+import io.github.certtool.keystorecore.input.InvalidBase64Exception;
 import io.github.certtool.keystorecore.load.KeyStoreLoadResult;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -16,6 +18,9 @@ import javafx.geometry.Insets;
 import javafx.scene.Node;
 import javafx.scene.Scene;
 import javafx.scene.control.Label;
+import javafx.scene.control.ButtonType;
+import javafx.scene.control.ChoiceDialog;
+import javafx.scene.control.Dialog;
 import javafx.scene.control.Menu;
 import javafx.scene.control.MenuBar;
 import javafx.scene.control.MenuItem;
@@ -23,6 +28,7 @@ import javafx.scene.control.ProgressBar;
 import javafx.scene.control.SeparatorMenuItem;
 import javafx.scene.control.Tab;
 import javafx.scene.control.TabPane;
+import javafx.scene.control.TextArea;
 import javafx.scene.control.ToolBar;
 import javafx.scene.layout.BorderPane;
 import javafx.scene.layout.HBox;
@@ -110,7 +116,7 @@ public final class MainShellController {
         MenuItem openFile = new MenuItem("Open KeyStore…");
         openFile.setOnAction(evt -> onOpenKeyStore());
         MenuItem openBase64 = new MenuItem("Paste Base64…");
-        openBase64.setOnAction(evt -> LOG.info("Paste Base64 not yet implemented in scope"));
+        openBase64.setOnAction(evt -> onPasteBase64());
         MenuItem export = new MenuItem("Export Report…");
         export.setOnAction(evt -> LOG.info("Export Report not yet implemented in scope"));
         MenuItem exit = new MenuItem("Exit");
@@ -252,6 +258,93 @@ public final class MainShellController {
             statusMessage.setText("Loaded: " + path.getFileName());
         });
         task.setOnFailed(evt -> statusMessage.setText("Load failed."));
+        composition.backgroundExecutor().submit(task);
+    }
+
+    /** Opens a modal multi-line dialog and submits non-blank pasted Base64 for loading. */
+    private void onPasteBase64() {
+        Dialog<String> dialog = new Dialog<>();
+        dialog.setTitle("Paste Base64");
+        dialog.initOwner(stage);
+        dialog.getDialogPane().getButtonTypes().addAll(ButtonType.OK, ButtonType.CANCEL);
+
+        TextArea input = new TextArea();
+        input.setPromptText("Paste Base64-encoded keystore data");
+        input.setPrefColumnCount(72);
+        input.setPrefRowCount(16);
+        dialog.getDialogPane().setContent(input);
+        dialog.setResultConverter(button -> button == ButtonType.OK ? input.getText() : null);
+        dialog.showAndWait().ifPresent(this::handlePastedBase64);
+    }
+
+    /** Submits non-blank Base64 input without exposing it through logs, status text, or errors. */
+    void handlePastedBase64(String input) {
+        if (input == null || input.isBlank()) {
+            return;
+        }
+        submitPastedLoadTask(composition.pasteBase64LoadTask(input), input);
+    }
+
+    private void submitPastedLoadTask(javafx.concurrent.Task<KeyStoreLoadResult> task, String input) {
+        bindLoadTask(task, () -> {
+            KeyStoreLoadResult result = task.getValue();
+            if (result != null && result.isSuccess()) {
+                composition.inspectController().onLoadResult(result);
+                statusMessage.setText("Pasted keystore loaded.");
+            } else if (isIndeterminate(result)) {
+                chooseContainerType().ifPresent(container -> submitSelectedContainerLoad(input, container));
+            } else {
+                statusMessage.setText("Could not load pasted keystore.");
+            }
+        });
+    }
+
+    private boolean isIndeterminate(KeyStoreLoadResult result) {
+        return result != null
+                && result.failure() != null
+                && result.failure().reason() == io.github.certtool.domain.error.LoadFailureReason.UNSUPPORTED_FORMAT;
+    }
+
+    private java.util.Optional<KeyStoreContainerType> chooseContainerType() {
+        ChoiceDialog<KeyStoreContainerType> dialog = new ChoiceDialog<>(
+                KeyStoreContainerType.JKS, KeyStoreContainerType.JKS, KeyStoreContainerType.BCFKS);
+        dialog.setTitle("Select KeyStore format");
+        dialog.setHeaderText("Could not determine the keystore container.");
+        dialog.setContentText("Format:");
+        dialog.initOwner(stage);
+        return dialog.showAndWait();
+    }
+
+    private void submitSelectedContainerLoad(String input, KeyStoreContainerType container) {
+        byte[] bytes;
+        try {
+            bytes = Base64Decoder.decode(input);
+        } catch (InvalidBase64Exception e) {
+            statusMessage.setText("Could not load pasted keystore.");
+            return;
+        }
+
+        LoadKeyStoreTask task = composition.loadTask(bytes, container);
+        bindLoadTask(task, () -> {
+            KeyStoreLoadResult result = task.getValue();
+            if (result != null && result.isSuccess()) {
+                composition.inspectController().onLoadResult(result);
+                statusMessage.setText("Pasted keystore loaded.");
+            } else {
+                statusMessage.setText("Could not load pasted keystore.");
+            }
+        });
+    }
+
+    private void bindLoadTask(javafx.concurrent.Task<KeyStoreLoadResult> task, Runnable onSucceeded) {
+        task.stateProperty().addListener((obs, oldS, newS) -> updateProgress(newS, task.getProgress()));
+        task.messageProperty().addListener((obs, oldM, newM) -> {
+            if (newM != null && !newM.isEmpty()) {
+                statusMessage.setText(newM);
+            }
+        });
+        task.setOnSucceeded(evt -> onSucceeded.run());
+        task.setOnFailed(evt -> statusMessage.setText("Could not load pasted keystore."));
         composition.backgroundExecutor().submit(task);
     }
 
