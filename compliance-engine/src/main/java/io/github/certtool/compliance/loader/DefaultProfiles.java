@@ -4,6 +4,7 @@ import io.github.certtool.domain.profile.Profile;
 import io.github.certtool.domain.profile.ProfileId;
 import java.io.IOException;
 import java.io.InputStream;
+import java.util.List;
 import java.util.Objects;
 
 /** Static accessor for the built-in profile JSON resources. */
@@ -54,5 +55,13 @@ public final class DefaultProfiles {
             case CUSTOM -> throw new IllegalArgumentException(
                     "CUSTOM profiles must be supplied by the user; no built-in resource.");
         };
+    }
+
+    /**
+     * Returns every built-in profile in display order. Failures to load a profile propagate as
+     * {@link IOException} — callers should not silently drop a profile.
+     */
+    public static List<Profile> all() throws IOException {
+        return List.of(loadFips1402Legacy(), loadFips1403());
     }
 }
