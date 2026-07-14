@@ -16,6 +16,7 @@ import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
 import javax.security.auth.x500.X500Principal;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -42,6 +43,27 @@ class PasteBase64LoadTaskTest {
 
         assertThat(result.isSuccess()).isTrue();
         assertThat(result.container()).isEqualTo(KeyStoreContainerType.JKS);
+    }
+
+    @Test
+    @DisplayName("call() uniquely detects a real Base64 BCFKS keystore")
+    void callUniquelyDetectsARealBase64BcfksKeyStore() throws Exception {
+        char[] password = "source-password".toCharArray();
+        X509Certificate certificate = CertificateGenerator.selfSigned(
+                new X500Principal("CN=pasted-bcfks"),
+                CertificateGenerator.rsaKeyPair(2048),
+                "SHA256withRSA",
+                Duration.ofDays(30));
+        java.security.KeyStore keyStore = KeyStoreGenerator.bcfks(password, "certificate", certificate);
+        String encodedBcfks = Base64.getEncoder().encodeToString(KeyStoreGenerator.toBytes(keyStore, password));
+
+        PasteBase64LoadTask task = new PasteBase64LoadTask(
+                new KeyStoreLoader(), encodedBcfks, new FixedPasswordProvider(password, Map.of()));
+
+        KeyStoreLoadResult result = task.call();
+
+        assertThat(result.isSuccess()).isTrue();
+        assertThat(result.container()).isEqualTo(KeyStoreContainerType.BCFKS);
     }
 
     @Test
@@ -95,5 +117,50 @@ class PasteBase64LoadTaskTest {
         assertThat(result.isSuccess()).isFalse();
         assertThat(result.failure()).isEqualTo(LoadFailure.of(
                 LoadFailureReason.UNSUPPORTED_FORMAT, "Could not determine the keystore container"));
+    }
+
+    @Test
+    @DisplayName("call() requests the store password once and gives each probe a disposable copy")
+    void callRequestsStorePasswordOnceAndGivesEachProbeADisposableCopy() {
+        AtomicInteger storePasswordRequests = new AtomicInteger();
+        List<char[]> suppliedPasswords = new ArrayList<>();
+        io.github.certtool.keystorecore.password.PasswordProvider passwords =
+                new io.github.certtool.keystorecore.password.PasswordProvider() {
+                    @Override
+                    public char[] requestStorePassword(
+                            io.github.certtool.keystorecore.password.StorePasswordRequest request) {
+                        storePasswordRequests.incrementAndGet();
+                        return "store-password".toCharArray();
+                    }
+
+                    @Override
+                    public char[] requestEntryPassword(
+                            io.github.certtool.keystorecore.password.EntryPasswordRequest request) {
+                        return null;
+                    }
+                };
+        PasteBase64LoadTask task = new PasteBase64LoadTask(
+                (bytes, container, probePasswords) -> {
+                    char[] password = probePasswords.requestStorePassword(
+                            new io.github.certtool.keystorecore.password.StorePasswordRequest("bytes", 1, 3));
+                    suppliedPasswords.add(password);
+                    java.util.Arrays.fill(password, '\0');
+                    return new KeyStoreLoadResult(
+                            false,
+                            null,
+                            null,
+                            null,
+                            List.of(),
+                            LoadFailure.of(LoadFailureReason.UNSUPPORTED_FORMAT, "unsupported"));
+                },
+                Base64.getEncoder().encodeToString(new byte[] {1}),
+                passwords);
+
+        task.call();
+
+        assertThat(storePasswordRequests).hasValue(1);
+        assertThat(suppliedPasswords).hasSize(2);
+        assertThat(suppliedPasswords.get(0)).isNotSameAs(suppliedPasswords.get(1));
+        assertThat(suppliedPasswords).allSatisfy(password -> assertThat(password).containsOnly('\0'));
     }
 }
