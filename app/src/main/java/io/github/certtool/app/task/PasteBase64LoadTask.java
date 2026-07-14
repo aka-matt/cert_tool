@@ -75,6 +75,11 @@ public final class PasteBase64LoadTask extends Task<KeyStoreLoadResult> {
             updateMessage(message);
         } catch (IllegalStateException ignored) {
             // Headless calls do not initialize the JavaFX toolkit.
+        } catch (RuntimeException e) {
+            if (!"No toolkit found".equals(e.getMessage())) {
+                throw e;
+            }
+            // Task.updateMessage throws this when direct headless callers have no FX toolkit.
         }
     }
 
