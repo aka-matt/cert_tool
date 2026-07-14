@@ -29,6 +29,10 @@
         </dependency>
         <dependency>
             <groupId>io.github.cert-tool</groupId>
+            <artifactId>compliance-engine</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.github.cert-tool</groupId>
             <artifactId>platform</artifactId>
         </dependency>
         <dependency>

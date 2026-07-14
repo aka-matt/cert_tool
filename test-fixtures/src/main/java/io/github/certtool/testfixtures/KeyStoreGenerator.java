@@ -69,6 +69,16 @@ public final class KeyStoreGenerator {
         return ks;
     }
 
+    /** Returns a BCFKS keystore containing a single private-key entry with the given entry password. */
+    public static KeyStore bcfks(
+            char[] storePassword, String alias, PrivateKey privateKey, char[] entryPassword, X509Certificate cert)
+            throws Exception {
+        KeyStore ks = KeyStore.getInstance(KeyStoreContainerType.BCFKS.name(), BouncyCastleProvider.PROVIDER_NAME);
+        ks.load(null, storePassword);
+        ks.setKeyEntry(alias, privateKey, entryPassword, new Certificate[]{cert});
+        return ks;
+    }
+
     /** Returns a BCFKS keystore containing a single secret-key entry. */
     public static KeyStore bcfks(char[] storePassword, String alias, Key secret, char[] entryPassword) throws Exception {
         KeyStore ks = KeyStore.getInstance(KeyStoreContainerType.BCFKS.name(), BouncyCastleProvider.PROVIDER_NAME);
