@@ -25,6 +25,9 @@ import java.time.Duration;
 import java.util.Date;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 import javax.security.auth.x500.X500Principal;
 import javafx.application.Platform;
 import javafx.concurrent.Worker;
@@ -85,8 +88,9 @@ class AnalyzeKeyStoreTaskTest {
 
         AnalyzeKeyStoreTask task = new AnalyzeKeyStoreTask(result, ContentEncoding.BINARY);
         task.cancel();
-        task.call();
+        InspectedKeyStore value = task.call();
 
+        assertThat(value).isNull();
         assertThat(task.getValue()).isNull();
         assertThat(task.stateProperty().get()).isEqualTo(Worker.State.CANCELLED);
     }
@@ -105,13 +109,42 @@ class AnalyzeKeyStoreTaskTest {
                 KeyStoreContainerType.JKS, "SUN", "17", List.of(goodEntry, badEntry));
 
         AnalyzeKeyStoreTask task = new AnalyzeKeyStoreTask(result, ContentEncoding.BINARY);
-        task.call();
+        task.run();
+        assertTaskSucceeded(task);
+        InspectedKeyStore value = task.get();
 
-        // Either CANCELLED due to propagated exception is acceptable; we only assert that
-        // the good entry was parsed before the bad one crashed the task. This guards against
-        // regression where one bad cert aborts parsing for the whole keystore.
-        // (We can't guarantee success because the task may still fail — we only assert that
-        // calling run() doesn't hang.)
+        assertThat(value).isNotNull();
+        assertThat(value.entries()).hasSize(2);
+
+        InspectedEntry goodInspected = value.entries().stream()
+                .filter(e -> "good".equals(e.alias()))
+                .findFirst().orElseThrow();
+        assertThat(goodInspected.certificates()).hasSize(1);
+
+        InspectedEntry badInspected = value.entries().stream()
+                .filter(e -> "bad".equals(e.alias()))
+                .findFirst().orElseThrow();
+        assertThat(badInspected.certificates()).isEmpty();
+        assertThat(badInspected.warnings()).isNotEmpty();
+    }
+
+    private static void assertTaskSucceeded(AnalyzeKeyStoreTask task) throws InterruptedException {
+        CountDownLatch latch = new CountDownLatch(1);
+        AtomicReference<AssertionError> failure = new AtomicReference<>();
+        Platform.runLater(() -> {
+            try {
+                assertThat(task.getException()).isNull();
+                assertThat(task.stateProperty().get()).isEqualTo(Worker.State.SUCCEEDED);
+            } catch (AssertionError error) {
+                failure.set(error);
+            } finally {
+                latch.countDown();
+            }
+        });
+        assertThat(latch.await(5, TimeUnit.SECONDS)).isTrue();
+        if (failure.get() != null) {
+            throw failure.get();
+        }
     }
 
     /**
