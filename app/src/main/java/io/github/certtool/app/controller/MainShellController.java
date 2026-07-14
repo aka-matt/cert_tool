@@ -74,11 +74,13 @@ public final class MainShellController {
             LOG.warn("Failed to load settings — using defaults", e);
             s = Settings.defaults();
         }
-        if (s.windowWidth() > 0 && s.windowHeight() > 0) {
+        if (s.windowWidth() != null && s.windowHeight() != null
+                && s.windowWidth() > 0 && s.windowHeight() > 0) {
             stage.setWidth(s.windowWidth());
             stage.setHeight(s.windowHeight());
         }
-        if (s.windowX() != 0 || s.windowY() != 0) {
+        if (s.windowX() != null && s.windowY() != null
+                && (s.windowX() != 0 || s.windowY() != 0)) {
             stage.setX(s.windowX());
             stage.setY(s.windowY());
         }

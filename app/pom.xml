@@ -61,6 +61,67 @@
             <groupId>org.openjfx</groupId>
             <artifactId>javafx-fxml</artifactId>
         </dependency>
+        <!-- All-platform JavaFX natives. Maven pulls the linux classifier transitively
+             from the empty stub; the windows / mac classifiers must be declared
+             explicitly so they end up in the lib/ directory next to the runnable
+             JAR. (JavaFX is published as classifier JARs — the runtime JARs contain
+             the native libraries; the empty stubs only have module-info entries.) -->
+        <dependency>
+            <groupId>org.openjfx</groupId>
+            <artifactId>javafx-base</artifactId>
+            <version>${javafx.version}</version>
+            <classifier>win</classifier>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.openjfx</groupId>
+            <artifactId>javafx-base</artifactId>
+            <version>${javafx.version}</version>
+            <classifier>mac</classifier>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.openjfx</groupId>
+            <artifactId>javafx-controls</artifactId>
+            <version>${javafx.version}</version>
+            <classifier>win</classifier>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.openjfx</groupId>
+            <artifactId>javafx-controls</artifactId>
+            <version>${javafx.version}</version>
+            <classifier>mac</classifier>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.openjfx</groupId>
+            <artifactId>javafx-graphics</artifactId>
+            <version>${javafx.version}</version>
+            <classifier>win</classifier>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.openjfx</groupId>
+            <artifactId>javafx-graphics</artifactId>
+            <version>${javafx.version}</version>
+            <classifier>mac</classifier>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.openjfx</groupId>
+            <artifactId>javafx-fxml</artifactId>
+            <version>${javafx.version}</version>
+            <classifier>win</classifier>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.openjfx</groupId>
+            <artifactId>javafx-fxml</artifactId>
+            <version>${javafx.version}</version>
+            <classifier>mac</classifier>
+            <scope>runtime</scope>
+        </dependency>
         <dependency>
             <groupId>io.github.mkpaz</groupId>
             <artifactId>atlantafx-base</artifactId>
@@ -100,7 +161,83 @@
 
     <build>
         <plugins>
-            <!-- Executable jar via maven-shade-plugin will be added in Phase 7. -->
+            <!-- Runnable JAR + lib/ directory layout.
+                 The default `maven-jar-plugin` only produces a thin JAR with no
+                 Main-Class entry, so `java -jar` fails with
+                 "no main manifest attribute". We override the jar plugin to set
+                 Main-Class, then let `maven-dependency-plugin` copy every
+                 runtime-scope dependency (including the JavaFX classifier JARs
+                 with their native libraries) into app/target/lib/. The manifest's
+                 Class-Path: header points at lib/*.jar so end users run:
+
+                     java -jar app/target/app-0.1.0-SNAPSHOT.jar
+
+                 ...and the JVM loads the JavaFX natives for the host platform
+                 from lib/. This avoids the "shaded JavaFX" runtime error caused
+                 by stuffing named-module classes into the unnamed module. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-jar-plugin</artifactId>
+                <configuration>
+                    <archive>
+                        <manifest>
+                            <mainClass>io.github.certtool.app.App</mainClass>
+                            <addClasspath>true</addClasspath>
+                            <classpathPrefix>lib/</classpathPrefix>
+                        </manifest>
+                    </archive>
+                </configuration>
+            </plugin>
+            <!-- Copy the cross-platform launcher scripts into target/ so users can
+                 double-click cert-tool.bat (Windows) or run ./cert-tool.sh
+                 (Linux / macOS) instead of having to construct the long
+                 module-path / add-modules invocation themselves. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-resources-plugin</artifactId>
+                <version>3.3.1</version>
+                <executions>
+                    <execution>
+                        <id>copy-launchers</id>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>copy-resources</goal>
+                        </goals>
+                        <configuration>
+                            <outputDirectory>${project.build.directory}</outputDirectory>
+                            <resources>
+                                <resource>
+                                    <directory>src/main/scripts</directory>
+                                    <filtering>false</filtering>
+                                </resource>
+                            </resources>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-dependency-plugin</artifactId>
+                <version>3.6.1</version>
+                <executions>
+                    <execution>
+                        <id>copy-runtime-deps</id>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>copy-dependencies</goal>
+                        </goals>
+                        <configuration>
+                            <outputDirectory>${project.build.directory}/lib</outputDirectory>
+                            <includeScope>runtime</includeScope>
+                            <!-- Test-only deps that can sneak in via transitive resolution. -->
+                            <excludeArtifactIds>junit-jupiter-api,junit-jupiter-engine,junit-jupiter-params,junit-platform-commons,junit-platform-engine,junit-platform-launcher,opentest4j,apiguardian-api,testfx-junit5,testfx-core,archunit-junit5,archunit-junit5-api,archunit,archunit-junit5-engine,archunit-junit5-engine-api,mockito-core,mockito-junit-jupiter,byte-buddy,assertj-core</excludeArtifactIds>
+                            <overWriteSnapshots>true</overWriteSnapshots>
+                            <stripVersion>false</stripVersion>
+                            <stripClassifier>false</stripClassifier>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
         </plugins>
     </build>
 </project>
