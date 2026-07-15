@@ -49,6 +49,7 @@ import javafx.scene.layout.GridPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.Region;
+import javafx.scene.layout.StackPane;
 import javafx.scene.layout.VBox;
 import javafx.stage.FileChooser;
 import javafx.stage.Stage;
@@ -189,8 +190,6 @@ public final class MainShellController {
         shell.setPadding(new Insets(12));
 
         Label placeholder = new Label("Open a KeyStore to inspect.");
-        shell.setCenter(placeholder);
-
         SplitPane split = new SplitPane();
         split.setDividerPositions(0.25);
         split.setVisible(false); // hidden until a keystore is loaded
@@ -199,7 +198,8 @@ public final class MainShellController {
         TabPane tabs = buildInspectTabs();
 
         split.getItems().addAll(tree, tabs);
-        shell.setCenter(split);
+        StackPane center = new StackPane(placeholder, split);
+        shell.setCenter(center);
 
         // React to load results coming through the VM. (tree, tabs, placeholder, split are
         // effectively-final locals captured by these lambda listeners.)
@@ -237,7 +237,9 @@ public final class MainShellController {
             if (newV == null || newV.getParent() == null) {
                 return;
             }
-            composition.inspectVm().setSelectedAlias(newV.getValue());
+            if (newV instanceof AliasTreeItem aliased) {
+                composition.inspectVm().setSelectedAlias(aliased.alias());
+            }
         });
         return tree;
     }
@@ -280,7 +282,8 @@ public final class MainShellController {
             String label = labelForGroup(entry.getKey()) + " (" + entry.getValue().size() + ")";
             TreeItem<String> group = new TreeItem<>(label);
             for (var n : entry.getValue()) {
-                group.getChildren().add(new TreeItem<>(n.alias() + " — " + n.entryType()));
+                TreeItem<String> leaf = new AliasTreeItem(n.alias(), n.alias() + " — " + n.entryType());
+                group.getChildren().add(leaf);
             }
             root.getChildren().add(group);
         }
@@ -289,7 +292,7 @@ public final class MainShellController {
         if (alias != null) {
             for (TreeItem<String> group : root.getChildren()) {
                 for (TreeItem<String> leaf : group.getChildren()) {
-                    if (leaf.getValue().startsWith(alias + " — ")) {
+                    if (leaf instanceof AliasTreeItem aliased && aliased.alias().equals(alias)) {
                         tree.getSelectionModel().select(leaf);
                         return;
                     }
@@ -606,5 +609,24 @@ public final class MainShellController {
     @SuppressWarnings("unused")
     private static void touchLogger() {
         Logger.getLogger("touch").log(Level.FINE, "noop");
+    }
+
+    /**
+     * A leaf {@link TreeItem} that remembers its alias alongside the display string. JavaFX's
+     * {@code TreeItem} is not a {@code Node} and has no {@code setUserData}; co-locating the
+     * alias on the leaf lets the selection listener and the re-select-after-rebuild path match
+     * by alias rather than by the brittle "display string starts with alias + separator" check.
+     */
+    private static final class AliasTreeItem extends TreeItem<String> {
+        private final String alias;
+
+        AliasTreeItem(String alias, String display) {
+            super(display);
+            this.alias = alias;
+        }
+
+        String alias() {
+            return alias;
+        }
     }
 }
