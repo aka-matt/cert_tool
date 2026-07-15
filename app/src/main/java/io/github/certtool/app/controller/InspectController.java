@@ -60,6 +60,7 @@ public final class InspectController {
     /** Hands the inspection result to the view-model. Null is a no-op. */
     public void applyInspection(InspectedKeyStore inspected) {
         if (inspected == null) {
+            viewModel.setInspected(null);
             return;
         }
         viewModel.setInspected(inspected);

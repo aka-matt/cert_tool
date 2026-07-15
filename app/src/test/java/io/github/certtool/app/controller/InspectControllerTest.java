@@ -128,15 +128,30 @@ class InspectControllerTest {
     }
 
     @Test
-    @DisplayName("applyInspection(null) is a no-op")
+    @DisplayName("applyInspection(null) clears the inspected state in the view-model")
     void applyInspectionNullIsNoOp() throws Exception {
         X509Certificate cert = leafCert();
+        // Seed a prior inspected value so the post-call null assertion is meaningful
+        // (a fresh view-model has inspected==null by default, which would let the
+        // no-op old implementation pass trivially).
+        var prior = new io.github.certtool.domain.inspect.InspectedKeyStore(
+                io.github.certtool.domain.inspect.KeyStoreSummary.from(
+                        KeyStoreLoadResult.success(KeyStoreContainerType.JKS, "SUN", "17",
+                                List.of(LoadedEntry.trustedCertificate("a", cert, new Date()))),
+                        ContentEncoding.BINARY),
+                List.of(new io.github.certtool.domain.inspect.InspectedEntry(
+                        "a", EntryType.TRUSTED_CERTIFICATE, new Date(), true,
+                        null, null, List.of(), List.of())));
         InspectViewModel vm = new InspectViewModel();
         InspectController c = new InspectController(vm);
+        vm.setInspected(prior);
         vm.setSelectedAlias("anything");
 
         c.applyInspection(null);
 
+        // applyInspection(null) must explicitly clear the inspected state (not be a
+        // no-op) so a stale inspection from a prior load does not persist while the
+        // next analyze task is in flight. selectedAlias must remain untouched.
         assertThat(vm.getInspected()).isNull();
         assertThat(vm.getSelectedAlias()).isEqualTo("anything");
     }
