@@ -404,7 +404,17 @@ public final class MainShellController {
     }
 
     private void updateInspectDetailTabs(TabPane tabs) {
-        // Real binding for the Certificate / Chain / Extensions / PEM tabs lands in Tasks 9–11.
+        InspectedEntry currentEntry = composition.inspectVm().getCurrentEntry();
+        int index = composition.inspectVm().getCurrentCertificateIndex();
+        int chainSize = currentEntry == null ? 0 : currentEntry.certificates().size();
+        InspectedCertificate cert = null;
+        if (currentEntry != null && !currentEntry.certificates().isEmpty()) {
+            int safe = Math.min(index, currentEntry.certificates().size() - 1);
+            if (safe < 0) safe = 0;
+            cert = currentEntry.certificates().get(safe);
+        }
+        Tab certificate = tabs.getTabs().get(1);
+        certificate.setContent(new ScrollPane(buildCertificateContent(cert, index, chainSize)));
     }
 
     private Node buildComplianceView() {
