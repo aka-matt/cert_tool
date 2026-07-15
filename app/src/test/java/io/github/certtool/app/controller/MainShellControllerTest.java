@@ -172,6 +172,80 @@ class MainShellControllerTest {
     }
 
     @Test
+    @DisplayName("placeholder is hidden and split is visible after a successful load")
+    void placeholderHiddenAfterSuccessfulLoad() throws Exception {
+        RecordingExecutor executor = new RecordingExecutor();
+        AppComposition comp = composition(executor);
+        MainShellController controller = new MainShellController(comp, null);
+
+        // Build the view first so listeners are wired (mirrors show() flow).
+        Node view = controller.inspectView();
+        Label placeholder = findLabel(view, "Open a KeyStore to inspect.");
+        javafx.scene.control.SplitPane split = findNode(view, javafx.scene.control.SplitPane.class);
+        assertThat(placeholder).isNotNull();
+        assertThat(split).isNotNull();
+        assertThat(placeholder.isVisible()).isTrue();  // initial state
+        assertThat(split.isVisible()).isFalse();        // initial state
+
+        // Now perform a successful load.
+        java.security.cert.X509Certificate cert = CertificateGenerator.selfSigned(
+                new javax.security.auth.x500.X500Principal("CN=ok"),
+                CertificateGenerator.rsaKeyPair(2048),
+                "SHA256withRSA", java.time.Duration.ofDays(7));
+        comp.inspectController().onLoadResult(KeyStoreLoadResult.success(
+                KeyStoreContainerType.JKS, "SUN", "17",
+                List.of(LoadedEntry.trustedCertificate("alias-1", cert, new java.util.Date()))));
+
+        assertThat(placeholder.isVisible()).isFalse();
+        assertThat(split.isVisible()).isTrue();
+    }
+
+    @Test
+    @DisplayName("placeholder shows a 'Load failed: ...' message after a failed load")
+    void placeholderShowsFailureReasonAfterFailedLoad() throws Exception {
+        RecordingExecutor executor = new RecordingExecutor();
+        AppComposition comp = composition(executor);
+        MainShellController controller = new MainShellController(comp, null);
+
+        Node view = controller.inspectView();
+        Label placeholder = findLabel(view, "Open a KeyStore to inspect.");
+        assertThat(placeholder).isNotNull();
+
+        // Simulate a load failure result with a user-readable reason.
+        KeyStoreLoadResult failure = KeyStoreLoadResult.failure(
+                io.github.certtool.domain.load.KeyFailure.of(
+                        io.github.certtool.domain.error.LoadFailureReason.WRONG_STORE_PASSWORD,
+                        "Reason stub message"));
+        comp.inspectController().onLoadResult(failure);
+
+        assertThat(placeholder.getText()).startsWith("Load failed:");
+        assertThat(placeholder.getText()).contains("Reason stub message");
+    }
+
+    private static Label findLabel(Node root, String text) {
+        if (root instanceof Label l && text.equals(l.getText())) return l;
+        if (root instanceof Label l && l.getText() != null && l.getText().startsWith("Load failed")) return l;
+        if (root instanceof javafx.scene.Parent p) {
+            for (Node child : p.getChildrenUnmodifiable()) {
+                Label found = findLabel(child, text);
+                if (found != null) return found;
+            }
+        }
+        return null;
+    }
+    @SuppressWarnings("unchecked")
+    private static <T extends Node> T findNode(Node root, Class<T> type) {
+        if (type.isInstance(root)) return type.cast(root);
+        if (root instanceof javafx.scene.Parent p) {
+            for (Node child : p.getChildrenUnmodifiable()) {
+                T found = (T) findNode(child, type);
+                if (found != null) return found;
+            }
+        }
+        return null;
+    }
+
+    @Test
     @DisplayName("restores the persisted Inspect divider position")
     void restoresInspectDividerPosition() throws Exception {
         MainShellController controller =

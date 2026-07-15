@@ -237,6 +237,13 @@ public final class MainShellController {
             boolean loaded = newV != null && newV.isSuccess();
             placeholder.setVisible(!loaded);
             split.setVisible(loaded);
+            // Refresh placeholder text so a failed load gets a visible reason instead of silently
+            // looking like nothing happened.
+            if (!loaded) {
+                placeholder.setText(buildPlaceholderText(newV));
+            } else {
+                placeholder.setText("Open a KeyStore to inspect.");
+            }
             tabs.getTabs().get(0).setContent(new ScrollPane(buildOverviewContent(
                     composition.inspectVm().getInspected(), newV)));
         });
@@ -253,6 +260,24 @@ public final class MainShellController {
         });
 
         return shell;
+    }
+
+    /**
+     * Returns a placeholder text appropriate for the current load state. Used by
+     * {@link #buildInspectView()} to give the user feedback when nothing is loaded — including
+     * distinguishing "never loaded" from "failed to load" from "failed mid-load".
+     */
+    private static String buildPlaceholderText(KeyStoreLoadResult result) {
+        if (result == null) {
+            return "Open a KeyStore to inspect.";
+        }
+        if (result.isSuccess()) {
+            return "Analyzing entries…";
+        }
+        if (result.failure() != null) {
+            return "Load failed: " + result.failure().userMessage();
+        }
+        return "Load failed.";
     }
 
     private TreeView<String> buildInspectTree() {
