@@ -3,6 +3,7 @@ package io.github.certtool.app.ui;
 import io.github.certtool.app.AppComposition;
 import io.github.certtool.app.settings.Settings;
 import io.github.certtool.app.settings.SettingsService;
+import io.github.certtool.app.theme.AtlantaFxThemeService;
 import io.github.certtool.app.theme.ThemeMode;
 import java.util.concurrent.atomic.AtomicReference;
 import javafx.scene.Scene;
@@ -47,6 +48,8 @@ class ThemeSwitchSmokeTest {
         AppComposition composition = AppComposition.defaultComposition();
         stage = new Stage();
         Scene scene = new Scene(new BorderPane(), 200, 200);
+        AtlantaFxThemeService.applyToScene(scene, composition.themeService().currentMode());
+        assert scene.getStylesheets().isEmpty();
         stage.setScene(scene);
         stage.show();
 

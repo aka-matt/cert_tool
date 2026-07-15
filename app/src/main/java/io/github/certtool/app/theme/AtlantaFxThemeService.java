@@ -165,12 +165,15 @@ public final class AtlantaFxThemeService implements ThemeService {
         };
     }
 
-    /** Convenience: applies the theme to a single Scene (used by tests + first-run setup). */
+    /**
+     * Applies the theme through JavaFX's application-wide user-agent stylesheet.
+     *
+     * <p>Do not attach an AtlantaFX stylesheet directly to a scene: a scene-level stylesheet
+     * remains in effect after {@link ThemeService#setMode(ThemeMode)} changes the global
+     * stylesheet, preventing a visible theme switch.
+     */
     public static void applyToScene(Scene scene, ThemeMode mode) {
         Objects.requireNonNull(scene, "scene");
-        switch (mode) {
-            case LIGHT, SYSTEM -> scene.getStylesheets().add(new PrimerLight().getUserAgentStylesheet());
-            case DARK -> scene.getStylesheets().add(new PrimerDark().getUserAgentStylesheet());
-        }
+        atlantaFxApplier().apply(mode == ThemeMode.SYSTEM ? ThemeMode.LIGHT : mode);
     }
 }
