@@ -3,7 +3,7 @@ package io.github.certtool.app.controller;
 import io.github.certtool.app.AppComposition;
 import io.github.certtool.app.settings.Settings;
 import io.github.certtool.app.task.AnalyzeKeyStoreTask;
-import io.github.certtool.app.task.LoadKeyStoreTask;
+import io.github.certtool.app.task.AutoDetectKeyStoreLoadTask;
 import io.github.certtool.app.viewmodel.InspectViewModel;
 import io.github.certtool.domain.inspect.InspectedCertificate;
 import io.github.certtool.domain.inspect.InspectedEntry;
@@ -168,7 +168,7 @@ public final class MainShellController {
         MenuBar mb = new MenuBar();
 
         Menu file = new Menu("File");
-        MenuItem openFile = new MenuItem("Open KeyStore…");
+        MenuItem openFile = new MenuItem("Open KeyStore or TrustStore…");
         openFile.setOnAction(evt -> onOpenKeyStore());
         MenuItem openBase64 = new MenuItem("Paste Base64…");
         openBase64.setOnAction(evt -> onPasteBase64());
@@ -665,14 +665,16 @@ public final class MainShellController {
         return bar;
     }
 
-    /** Opens a file chooser and dispatches a LoadKeyStoreTask on the background executor. */
+    /** Opens a file chooser and dispatches an auto-detecting load task on the background executor. */
     private void onOpenKeyStore() {
         FileChooser chooser = new FileChooser();
-        chooser.setTitle("Open KeyStore");
+        chooser.setTitle("Open KeyStore or TrustStore");
         chooser.getExtensionFilters().addAll(
-                new FileChooser.ExtensionFilter("All keystores", "*.jks", "*.bcfks", "*.keystore"),
+                new FileChooser.ExtensionFilter(
+                        "JKS and BCFKS stores", "*.jks", "*.bcfks", "*.keystore", "*.truststore"),
                 new FileChooser.ExtensionFilter("JKS", "*.jks"),
-                new FileChooser.ExtensionFilter("BCFKS", "*.bcfks"));
+                new FileChooser.ExtensionFilter("BCFKS", "*.bcfks"),
+                new FileChooser.ExtensionFilter("All files", "*.*"));
         java.io.File selected = chooser.showOpenDialog(stage);
         if (selected == null) {
             // User dismissed the chooser without selecting a file — expected, not an error.
@@ -687,9 +689,7 @@ public final class MainShellController {
             statusMessage.setText("Read failed.");
             return;
         }
-        KeyStoreContainerType container = path.toString().toLowerCase().endsWith(".bcfks")
-                ? KeyStoreContainerType.BCFKS : KeyStoreContainerType.JKS;
-        LoadKeyStoreTask task = composition.loadTask(bytes, container);
+        AutoDetectKeyStoreLoadTask task = composition.autoDetectLoadTask(bytes);
         activateLoadTask(task);
         task.stateProperty().addListener((obs, oldS, newS) -> updateProgress(newS, task.getProgress()));
         task.messageProperty().addListener((obs, oldM, newM) -> {

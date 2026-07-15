@@ -7,6 +7,7 @@ import io.github.certtool.app.controller.RuntimeController;
 import io.github.certtool.app.settings.SettingsService;
 import io.github.certtool.app.task.AssessmentTask;
 import io.github.certtool.app.task.AnalyzeKeyStoreTask;
+import io.github.certtool.app.task.AutoDetectKeyStoreLoadTask;
 import io.github.certtool.app.task.ConvertTask;
 import io.github.certtool.app.task.ExportReportTask;
 import io.github.certtool.app.task.LoadKeyStoreTask;
@@ -143,6 +144,11 @@ public final class AppComposition {
     /** Builds a {@link LoadKeyStoreTask} on demand using the active password provider. */
     public LoadKeyStoreTask loadTask(byte[] bytes, KeyStoreContainerType container) {
         return new LoadKeyStoreTask(loader, bytes, container, activePasswordProvider);
+    }
+
+    /** Builds an auto-detecting keystore load task using the active password provider. */
+    public AutoDetectKeyStoreLoadTask autoDetectLoadTask(byte[] bytes) {
+        return new AutoDetectKeyStoreLoadTask(loader, bytes, activePasswordProvider);
     }
 
     /** Builds an {@link AnalyzeKeyStoreTask} on demand via the configured factory. */

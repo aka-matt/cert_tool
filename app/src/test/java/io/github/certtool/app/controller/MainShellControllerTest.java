@@ -40,6 +40,7 @@ import io.github.certtool.domain.load.LoadedEntry;
 import io.github.certtool.keystorecore.load.KeyStoreLoader;
 import io.github.certtool.keystorecore.password.FixedPasswordProvider;
 import io.github.certtool.testfixtures.CertificateGenerator;
+import io.github.certtool.testfixtures.KeyStoreGenerator;
 import java.math.BigInteger;
 import java.nio.file.Path;
 import java.time.Instant;
@@ -72,6 +73,23 @@ class MainShellControllerTest {
         } catch (IllegalStateException ignored) {
             // toolkit already started by another test class in the same JVM
         }
+    }
+
+    @Test
+    @DisplayName("composition auto-detects a BCFKS truststore without a filename container hint")
+    void compositionAutoDetectsBcfksTruststore() throws Exception {
+        java.security.cert.X509Certificate certificate = CertificateGenerator.selfSigned(
+                new javax.security.auth.x500.X500Principal("CN=composition-trust"),
+                CertificateGenerator.rsaKeyPair(2048),
+                "SHA256withRSA",
+                java.time.Duration.ofDays(7));
+        char[] password = new char[0];
+        byte[] bytes = KeyStoreGenerator.toBytes(KeyStoreGenerator.bcfks(password, "trust", certificate), password);
+
+        var task = composition(new RecordingExecutor()).autoDetectLoadTask(bytes);
+        task.run();
+
+        assertThat(task.get().container()).isEqualTo(KeyStoreContainerType.BCFKS);
     }
 
     @Test
