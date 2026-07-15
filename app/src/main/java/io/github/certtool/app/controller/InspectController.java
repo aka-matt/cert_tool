@@ -1,6 +1,7 @@
 package io.github.certtool.app.controller;
 
 import io.github.certtool.app.viewmodel.InspectViewModel;
+import io.github.certtool.domain.inspect.InspectedKeyStore;
 import io.github.certtool.domain.load.KeyStoreLoadResult;
 import io.github.certtool.domain.load.LoadedEntry;
 import java.security.cert.Certificate;
@@ -54,5 +55,13 @@ public final class InspectController {
 
     public InspectViewModel viewModel() {
         return viewModel;
+    }
+
+    /** Hands the inspection result to the view-model. Null is a no-op. */
+    public void applyInspection(InspectedKeyStore inspected) {
+        if (inspected == null) {
+            return;
+        }
+        viewModel.setInspected(inspected);
     }
 }

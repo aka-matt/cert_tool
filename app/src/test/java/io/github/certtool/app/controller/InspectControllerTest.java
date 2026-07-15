@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import io.github.certtool.app.viewmodel.InspectViewModel;
 import io.github.certtool.app.viewmodel.InspectViewModel.Group;
 import io.github.certtool.app.viewmodel.InspectViewModel.NavNode;
+import io.github.certtool.domain.keystore.ContentEncoding;
 import io.github.certtool.domain.keystore.EntryType;
 import io.github.certtool.domain.keystore.KeyStoreContainerType;
 import io.github.certtool.domain.load.KeyStoreLoadResult;
@@ -124,5 +125,39 @@ class InspectControllerTest {
         assertThat(vm.navNodes()).isEmpty();
         assertThat(vm.getSelectedAlias()).isNull();
         assertThat(c.selectedEntry()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("applyInspection(null) is a no-op")
+    void applyInspectionNullIsNoOp() throws Exception {
+        X509Certificate cert = leafCert();
+        InspectViewModel vm = new InspectViewModel();
+        InspectController c = new InspectController(vm);
+        vm.setSelectedAlias("anything");
+
+        c.applyInspection(null);
+
+        assertThat(vm.getInspected()).isNull();
+        assertThat(vm.getSelectedAlias()).isEqualTo("anything");
+    }
+
+    @Test
+    @DisplayName("applyInspection delegates to viewModel.setInspected")
+    void applyInspectionDelegates() throws Exception {
+        X509Certificate cert = leafCert();
+        var inspected = new io.github.certtool.domain.inspect.InspectedKeyStore(
+                io.github.certtool.domain.inspect.KeyStoreSummary.from(
+                        KeyStoreLoadResult.success(KeyStoreContainerType.JKS, "SUN", "17",
+                                List.of(LoadedEntry.trustedCertificate("a", cert, new Date()))),
+                        ContentEncoding.BINARY),
+                List.of(new io.github.certtool.domain.inspect.InspectedEntry(
+                        "a", EntryType.TRUSTED_CERTIFICATE, new Date(), true,
+                        null, null, List.of(), List.of())));
+        InspectViewModel vm = new InspectViewModel();
+        InspectController c = new InspectController(vm);
+
+        c.applyInspection(inspected);
+
+        assertThat(vm.getInspected()).isSameAs(inspected);
     }
 }
