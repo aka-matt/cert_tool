@@ -44,6 +44,8 @@ import javafx.scene.control.ToolBar;
 import javafx.scene.control.TreeCell;
 import javafx.scene.control.TreeItem;
 import javafx.scene.control.TreeView;
+import javafx.scene.input.Clipboard;
+import javafx.scene.input.ClipboardContent;
 import javafx.scene.layout.BorderPane;
 import javafx.scene.layout.GridPane;
 import javafx.scene.layout.HBox;
@@ -473,6 +475,27 @@ public final class MainShellController {
         return box;
     }
 
+    private Node buildPemContent(InspectedCertificate cert) {
+        VBox box = new VBox(6);
+        box.setPadding(new Insets(8));
+        if (cert == null) {
+            box.getChildren().add(new Label("Select a certificate to view its PEM."));
+            return box;
+        }
+        TextArea area = new TextArea(cert.analysis().pem());
+        area.setEditable(false);
+        area.setWrapText(false);
+        area.setPrefRowCount(20);
+        Button copy = new Button("Copy");
+        copy.setOnAction(e -> {
+            ClipboardContent content = new ClipboardContent();
+            content.putString(area.getText());
+            Clipboard.getSystemClipboard().setContent(content);
+        });
+        box.getChildren().addAll(copy, area);
+        return box;
+    }
+
     private static String formatSans(java.util.List<io.github.certtool.domain.certificate.SubjectAlternativeName> sans) {
         if (sans.isEmpty()) return "(none)";
         StringBuilder sb = new StringBuilder();
@@ -520,6 +543,8 @@ public final class MainShellController {
         chain.setContent(new ScrollPane(buildChainContent(currentEntry)));
         Tab extensions = tabs.getTabs().get(3);
         extensions.setContent(new ScrollPane(buildExtensionsContent(cert)));
+        Tab pem = tabs.getTabs().get(4);
+        pem.setContent(new ScrollPane(buildPemContent(cert)));
     }
 
     private Node buildComplianceView() {
