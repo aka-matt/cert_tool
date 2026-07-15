@@ -2,6 +2,7 @@ package io.github.certtool.app.viewmodel;
 
 import io.github.certtool.domain.inspect.InspectedEntry;
 import io.github.certtool.domain.inspect.InspectedKeyStore;
+import io.github.certtool.domain.keystore.ContentEncoding;
 import io.github.certtool.domain.keystore.EntryType;
 import io.github.certtool.domain.keystore.KeyStoreContainerType;
 import io.github.certtool.domain.load.KeyStoreLoadResult;
@@ -52,6 +53,8 @@ public final class InspectViewModel {
     private final ObjectProperty<InspectedKeyStore> inspected = new SimpleObjectProperty<>();
     private final ReadOnlyObjectWrapper<InspectedEntry> currentEntry = new ReadOnlyObjectWrapper<>();
     private final IntegerProperty currentCertificateIndex = new SimpleIntegerProperty(0);
+    private final ObjectProperty<ContentEncoding> contentEncoding = new SimpleObjectProperty<>();
+    private final StringProperty sourcePath = new SimpleStringProperty("");
 
     {
         selectedAliasProperty().addListener((obs, oldV, newV) -> {
@@ -166,6 +169,17 @@ public final class InspectViewModel {
         int next = currentCertificateIndex.get() - 1;
         currentCertificateIndex.set(Math.max(0, next));
     }
+
+    public ObjectProperty<ContentEncoding> contentEncodingProperty() { return contentEncoding; }
+    public ContentEncoding getContentEncoding() { return contentEncoding.get(); }
+    public void setContentEncoding(ContentEncoding e) { contentEncoding.set(e); }
+
+    public StringProperty sourcePathProperty() { return sourcePath; }
+    public String getSourcePath() {
+        String v = sourcePath.get();
+        return v == null ? "" : v;
+    }
+    public void setSourcePath(String p) { sourcePath.set(p == null ? "" : p); }
 
     private void recomputeCurrentEntry() {
         InspectedKeyStore s = inspected.get();
