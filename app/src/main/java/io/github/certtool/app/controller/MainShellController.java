@@ -255,6 +255,9 @@ public final class MainShellController {
         composition.inspectVm().selectedAliasProperty().addListener((obs, oldV, newV) -> {
             updateInspectDetailTabs(tabs);
         });
+        composition.inspectVm().currentEntryProperty().addListener((obs, oldV, newV) -> {
+            updateInspectDetailTabs(tabs);
+        });
         composition.inspectVm().currentCertificateIndexProperty().addListener((obs, oldV, newV) -> {
             updateInspectDetailTabs(tabs);
         });

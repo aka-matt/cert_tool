@@ -16,17 +16,34 @@ import io.github.certtool.app.viewmodel.InspectViewModel;
 import io.github.certtool.app.viewmodel.RuntimeViewModel;
 import io.github.certtool.compliance.core.AssessmentEngine;
 import io.github.certtool.compliance.core.DefaultRules;
+import io.github.certtool.domain.certificate.BasicConstraintsInfo;
+import io.github.certtool.domain.certificate.CertificateAnalysis;
+import io.github.certtool.domain.certificate.ExtensionAnalysis;
+import io.github.certtool.domain.certificate.FingerprintBundle;
+import io.github.certtool.domain.certificate.KeyAlgorithm;
+import io.github.certtool.domain.certificate.KeyUsageBits;
+import io.github.certtool.domain.certificate.PublicKeyInfo;
+import io.github.certtool.domain.certificate.SelfSignedStatus;
+import io.github.certtool.domain.certificate.ValidityState;
+import io.github.certtool.domain.certificate.ValidityWindow;
 import io.github.certtool.domain.error.LoadFailure;
 import io.github.certtool.domain.error.LoadFailureReason;
+import io.github.certtool.domain.inspect.InspectedCertificate;
+import io.github.certtool.domain.inspect.InspectedEntry;
 import io.github.certtool.domain.inspect.InspectedKeyStore;
+import io.github.certtool.domain.inspect.KeyStoreSummary;
 import io.github.certtool.domain.keystore.ContentEncoding;
+import io.github.certtool.domain.keystore.EntryType;
 import io.github.certtool.domain.keystore.KeyStoreContainerType;
 import io.github.certtool.domain.load.KeyStoreLoadResult;
 import io.github.certtool.domain.load.LoadedEntry;
 import io.github.certtool.keystorecore.load.KeyStoreLoader;
 import io.github.certtool.keystorecore.password.FixedPasswordProvider;
 import io.github.certtool.testfixtures.CertificateGenerator;
+import java.math.BigInteger;
 import java.nio.file.Path;
+import java.time.Instant;
+import java.util.Date;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -222,6 +239,115 @@ class MainShellControllerTest {
         assertThat(placeholder.getText()).contains("Reason stub message");
     }
 
+    @Test
+    @DisplayName("detail tabs render certificate data once inspection completes")
+    void detailTabsRenderCertificateDataOnceInspectionCompletes() throws Exception {
+        RecordingExecutor executor = new RecordingExecutor();
+        AppComposition comp = composition(executor);
+        MainShellController controller = new MainShellController(comp, null);
+
+        // Build the view so listeners are wired.
+        Node view = controller.inspectView();
+        javafx.scene.control.TabPane tabs = findNode(view, javafx.scene.control.TabPane.class);
+        assertThat(tabs).isNotNull();
+
+        // Load + inspect.
+        java.security.cert.X509Certificate cert = CertificateGenerator.selfSigned(
+                new javax.security.auth.x500.X500Principal("CN=detail"),
+                CertificateGenerator.rsaKeyPair(2048),
+                "SHA256withRSA", java.time.Duration.ofDays(7));
+        KeyStoreLoadResult loaded = KeyStoreLoadResult.success(
+                KeyStoreContainerType.JKS, "SUN", "17",
+                List.of(LoadedEntry.trustedCertificate("alias-1", cert, new java.util.Date())));
+        comp.inspectController().onLoadResult(loaded);
+        comp.inspectController().applyInspection(buildInspected("alias-1", cert));
+
+        Node certTab = tabs.getTabs().get(1).getContent();
+        Node chainTab = tabs.getTabs().get(2).getContent();
+        Node extensionsTab = tabs.getTabs().get(3).getContent();
+        Node pemTab = tabs.getTabs().get(4).getContent();
+
+        assertThat(allLabels(certTab))
+                .as("Certificate tab should show real cert fields, not the 'Select an alias' placeholder")
+                .noneMatch(t -> t.contains("Select an alias"))
+                .anyMatch(t -> t.startsWith("Subject:"));
+        assertThat(allLabels(chainTab))
+                .as("Chain tab should show the chain header, not the 'Select an alias' placeholder")
+                .noneMatch(t -> t.contains("Select an alias"))
+                .anyMatch(t -> t.contains("certificate(s) in this chain"));
+        assertThat(allLabels(extensionsTab))
+                .as("Extensions tab should show extension rows, not the 'Select an alias' placeholder")
+                .noneMatch(t -> t.contains("Select an alias"))
+                .anyMatch(t -> t.startsWith("Basic Constraints"));
+        assertThat(allLabels(pemTab))
+                .as("PEM tab should show PEM body, not the 'Select an alias' placeholder")
+                .noneMatch(t -> t.contains("Select an alias"));
+        assertThat(allText(pemTab))
+                .as("PEM tab should contain BEGIN CERTIFICATE marker")
+                .anyMatch(t -> t.contains("BEGIN CERTIFICATE"));
+    }
+
+    private static InspectedKeyStore buildInspected(String alias, java.security.cert.X509Certificate cert) {
+        ValidityWindow validity = new ValidityWindow(Instant.now(), Instant.now().plusSeconds(60));
+        CertificateAnalysis analysis = new CertificateAnalysis(
+                "CN=detail", "CN=detail", BigInteger.ONE, "01", "1",
+                3, validity, ValidityState.VALID, "SHA256withRSA", "1.2.840.113549.1.1.11",
+                new PublicKeyInfo(KeyAlgorithm.RSA, 2048, null, null, null),
+                new ExtensionAnalysis(
+                        BasicConstraintsInfo.absent(), KeyUsageBits.empty(),
+                        List.of(), List.of(), List.of(),
+                        null, null,
+                        List.of(), List.of(), List.of(), List.of(),
+                        List.of(), List.of(), List.of()),
+                new FingerprintBundle(
+                        "e3" + "0".repeat(60), "e2" + "0".repeat(36),
+                        "E3" + ":0".repeat(31), "E2" + ":0".repeat(19)),
+                new SelfSignedStatus(true, true),
+                "-----BEGIN CERTIFICATE-----\nstub\n-----END CERTIFICATE-----\n");
+        InspectedEntry entry = new InspectedEntry(
+                alias, EntryType.TRUSTED_CERTIFICATE,
+                new Date(), true, "RSA", 2048,
+                List.of(new InspectedCertificate(0, analysis)),
+                List.of());
+        return new InspectedKeyStore(
+                KeyStoreSummary.from(
+                        KeyStoreLoadResult.success(KeyStoreContainerType.JKS, "SUN", "17",
+                                List.of(LoadedEntry.trustedCertificate(alias, cert, new java.util.Date()))),
+                        ContentEncoding.BINARY),
+                List.of(entry));
+    }
+
+    private static List<String> allLabels(Node root) {
+        List<String> out = new java.util.ArrayList<>();
+        collectText(root, out, /*includeTextAreas*/ false);
+        return out;
+    }
+
+    private static List<String> allText(Node root) {
+        List<String> out = new java.util.ArrayList<>();
+        collectText(root, out, /*includeTextAreas*/ true);
+        return out;
+    }
+
+    private static void collectText(Node node, List<String> out, boolean includeTextAreas) {
+        if (node == null) return;
+        if (node instanceof Label l && l.getText() != null) {
+            out.add(l.getText());
+        }
+        if (includeTextAreas && node instanceof javafx.scene.control.TextArea ta) {
+            String t = ta.getText();
+            if (t != null) out.add(t);
+        }
+        if (node instanceof javafx.scene.control.ScrollPane sp) {
+            collectText(sp.getContent(), out, includeTextAreas);
+        }
+        if (node instanceof javafx.scene.Parent p) {
+            for (Node child : p.getChildrenUnmodifiable()) {
+                collectText(child, out, includeTextAreas);
+            }
+        }
+    }
+
     private static Label findLabel(Node root, String text) {
         if (root instanceof Label l && text.equals(l.getText())) return l;
         if (root instanceof Label l && l.getText() != null && l.getText().startsWith("Load failed")) return l;
@@ -236,6 +362,18 @@ class MainShellControllerTest {
     @SuppressWarnings("unchecked")
     private static <T extends Node> T findNode(Node root, Class<T> type) {
         if (type.isInstance(root)) return type.cast(root);
+        if (root instanceof javafx.scene.control.SplitPane sp) {
+            for (Node child : sp.getItems()) {
+                T found = (T) findNode(child, type);
+                if (found != null) return found;
+            }
+        }
+        if (root instanceof javafx.scene.control.TabPane tp) {
+            for (javafx.scene.control.Tab tab : tp.getTabs()) {
+                T found = (T) findNode(tab.getContent(), type);
+                if (found != null) return found;
+            }
+        }
         if (root instanceof javafx.scene.Parent p) {
             for (Node child : p.getChildrenUnmodifiable()) {
                 T found = (T) findNode(child, type);
