@@ -669,9 +669,11 @@ public final class MainShellController {
         chooser.setTitle("Open KeyStore or TrustStore");
         chooser.getExtensionFilters().addAll(
                 new FileChooser.ExtensionFilter(
-                        "JKS and BCFKS stores", "*.jks", "*.bcfks", "*.keystore", "*.truststore"),
+                        "JKS, BCFKS, and PKCS12 stores",
+                        "*.jks", "*.bcfks", "*.keystore", "*.truststore", "*.p12", "*.pfx"),
                 new FileChooser.ExtensionFilter("JKS", "*.jks"),
                 new FileChooser.ExtensionFilter("BCFKS", "*.bcfks"),
+                new FileChooser.ExtensionFilter("PKCS12", "*.p12", "*.pfx"),
                 new FileChooser.ExtensionFilter("All files", "*.*"));
         java.io.File selected = chooser.showOpenDialog(stage);
         if (selected == null) {
@@ -756,7 +758,10 @@ public final class MainShellController {
 
     private Optional<KeyStoreContainerType> chooseContainerType() {
         ChoiceDialog<KeyStoreContainerType> dialog = new ChoiceDialog<>(
-                KeyStoreContainerType.JKS, KeyStoreContainerType.JKS, KeyStoreContainerType.BCFKS);
+                KeyStoreContainerType.JKS,
+                KeyStoreContainerType.JKS,
+                KeyStoreContainerType.BCFKS,
+                KeyStoreContainerType.PKCS12);
         dialog.setTitle("Select KeyStore format");
         dialog.setHeaderText("Could not determine the keystore container.");
         dialog.setContentText("Format:");

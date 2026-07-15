@@ -52,12 +52,10 @@ public final class KeystoreConversion {
 
     /** Creates an empty target keystore of the requested container type, unlocked with the password. */
     private static KeyStore createEmpty(KeyStoreContainerType type, char[] pwd) throws GeneralSecurityException, IOException {
-        if (type == KeyStoreContainerType.BCFKS) {
-            KeyStore ks = KeyStore.getInstance(type.name(), BouncyCastleProvider.PROVIDER_NAME);
-            ks.load(null, pwd);
-            return ks;
-        }
-        KeyStore ks = KeyStore.getInstance(type.name());
+        KeyStore ks = switch (type) {
+            case JKS, PKCS12 -> KeyStore.getInstance(type.name());
+            case BCFKS -> KeyStore.getInstance(type.name(), BouncyCastleProvider.PROVIDER_NAME);
+        };
         ks.load(null, pwd);
         return ks;
     }

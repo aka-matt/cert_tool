@@ -124,6 +124,36 @@ class MainShellControllerTest {
     }
 
     @Test
+    @DisplayName("selected-file task detects PKCS12 truststore named with a p12 suffix")
+    void selectedFileTaskDetectsPkcs12TruststoreNamedWithP12Suffix() throws Exception {
+        java.security.cert.X509Certificate certificate = CertificateGenerator.selfSigned(
+                new javax.security.auth.x500.X500Principal("CN=selected-file-pkcs12-trust"),
+                CertificateGenerator.rsaKeyPair(2048),
+                "SHA256withRSA",
+                java.time.Duration.ofDays(7));
+        char[] password = new char[0];
+        byte[] bytes = KeyStoreGenerator.toBytes(KeyStoreGenerator.pkcs12(password, "trust", certificate), password);
+        Path store = Files.createTempFile("cert-tool", ".p12");
+        try {
+            Files.write(store, bytes);
+
+            var task = composition(new RecordingExecutor()).autoDetectLoadTask(store);
+            task.run();
+
+            KeyStoreLoadResult result = task.get();
+
+            assertThat(result.isSuccess()).isTrue();
+            assertThat(result.container()).isEqualTo(KeyStoreContainerType.PKCS12);
+            assertThat(result.entries())
+                    .singleElement()
+                    .extracting(LoadedEntry::entryType)
+                    .isEqualTo(EntryType.TRUSTED_CERTIFICATE);
+        } finally {
+            Files.deleteIfExists(store);
+        }
+    }
+
+    @Test
     @DisplayName("blank pasted Base64 does not submit a load task")
     void blankPasteDoesNotSubmitALoadTask() throws Exception {
         RecordingExecutor executor = new RecordingExecutor();

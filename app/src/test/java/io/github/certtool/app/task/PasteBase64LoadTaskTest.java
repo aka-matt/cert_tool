@@ -67,6 +67,27 @@ class PasteBase64LoadTaskTest {
     }
 
     @Test
+    @DisplayName("call() uniquely detects a real Base64 PKCS12 truststore")
+    void callUniquelyDetectsARealBase64Pkcs12Truststore() throws Exception {
+        char[] password = "source-password".toCharArray();
+        X509Certificate certificate = CertificateGenerator.selfSigned(
+                new X500Principal("CN=pasted-pkcs12"),
+                CertificateGenerator.rsaKeyPair(2048),
+                "SHA256withRSA",
+                Duration.ofDays(30));
+        java.security.KeyStore keyStore = KeyStoreGenerator.pkcs12(password, "certificate", certificate);
+        String encodedPkcs12 = Base64.getEncoder().encodeToString(KeyStoreGenerator.toBytes(keyStore, password));
+
+        PasteBase64LoadTask task = new PasteBase64LoadTask(
+                new KeyStoreLoader(), encodedPkcs12, new FixedPasswordProvider(password, Map.of()));
+
+        KeyStoreLoadResult result = task.call();
+
+        assertThat(result.isSuccess()).isTrue();
+        assertThat(result.container()).isEqualTo(KeyStoreContainerType.PKCS12);
+    }
+
+    @Test
     @DisplayName("call() rejects invalid Base64 without echoing the input")
     void callRejectsInvalidBase64WithoutEchoingTheInput() {
         PasteBase64LoadTask task = new PasteBase64LoadTask(
@@ -92,7 +113,9 @@ class PasteBase64LoadTaskTest {
 
         KeyStoreLoadResult result = task.call();
 
-        assertThat(probedContainers).containsExactly(KeyStoreContainerType.JKS, KeyStoreContainerType.BCFKS);
+        assertThat(probedContainers)
+                .containsExactly(
+                        KeyStoreContainerType.JKS, KeyStoreContainerType.BCFKS, KeyStoreContainerType.PKCS12);
         assertThat(result.isSuccess()).isFalse();
         assertThat(result.failure()).isEqualTo(LoadFailure.of(
                 LoadFailureReason.AMBIGUOUS_CONTAINER, "Could not determine the keystore container"));
@@ -159,7 +182,7 @@ class PasteBase64LoadTaskTest {
         task.call();
 
         assertThat(storePasswordRequests).hasValue(1);
-        assertThat(suppliedPasswords).hasSize(2);
+        assertThat(suppliedPasswords).hasSize(3);
         assertThat(suppliedPasswords.get(0)).isNotSameAs(suppliedPasswords.get(1));
         assertThat(suppliedPasswords).allSatisfy(password -> assertThat(password).containsOnly('\0'));
     }

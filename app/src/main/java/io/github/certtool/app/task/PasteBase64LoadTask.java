@@ -4,6 +4,7 @@ import io.github.certtool.domain.error.LoadFailure;
 import io.github.certtool.domain.error.LoadFailureReason;
 import io.github.certtool.domain.keystore.KeyStoreContainerType;
 import io.github.certtool.domain.load.KeyStoreLoadResult;
+import io.github.certtool.keystorecore.detection.ContainerDetector;
 import io.github.certtool.keystorecore.input.Base64Decoder;
 import io.github.certtool.keystorecore.input.InvalidBase64Exception;
 import io.github.certtool.keystorecore.load.KeyStoreLoader;
@@ -11,6 +12,7 @@ import io.github.certtool.keystorecore.password.PasswordProvider;
 import io.github.certtool.keystorecore.password.EntryPasswordRequest;
 import io.github.certtool.keystorecore.password.StorePasswordRequest;
 import java.util.Arrays;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import javafx.concurrent.Task;
@@ -52,11 +54,36 @@ public final class PasteBase64LoadTask extends Task<KeyStoreLoadResult> {
         try (ReusableStorePasswordProvider probePasswords = new ReusableStorePasswordProvider(passwordProvider)) {
             KeyStoreLoadResult jks = loader.load(bytes, KeyStoreContainerType.JKS, probePasswords);
             KeyStoreLoadResult bcfks = loader.load(bytes, KeyStoreContainerType.BCFKS, probePasswords);
-            if (jks.isSuccess() != bcfks.isSuccess()) {
-                return loaded(jks.isSuccess() ? jks : bcfks);
+            KeyStoreLoadResult pkcs12 = loader.load(bytes, KeyStoreContainerType.PKCS12, probePasswords);
+            List<KeyStoreLoadResult> successful = new ArrayList<>();
+            KeyStoreContainerType detected = ContainerDetector.detectContainer(bytes);
+            if (detected == KeyStoreContainerType.JKS) {
+                if (jks.isSuccess()) {
+                    successful.add(jks);
+                }
+            } else if (detected == KeyStoreContainerType.BCFKS) {
+                if (bcfks.isSuccess()) {
+                    successful.add(bcfks);
+                }
+                if (pkcs12.isSuccess()) {
+                    successful.add(pkcs12);
+                }
+            } else {
+                if (jks.isSuccess()) {
+                    successful.add(jks);
+                }
+                if (bcfks.isSuccess()) {
+                    successful.add(bcfks);
+                }
+                if (pkcs12.isSuccess()) {
+                    successful.add(pkcs12);
+                }
+            }
+            if (successful.size() == 1) {
+                return loaded(successful.get(0));
             }
             return failed(
-                    jks.isSuccess() ? LoadFailureReason.AMBIGUOUS_CONTAINER : LoadFailureReason.UNSUPPORTED_FORMAT,
+                    successful.isEmpty() ? LoadFailureReason.UNSUPPORTED_FORMAT : LoadFailureReason.AMBIGUOUS_CONTAINER,
                     LOAD_FAILURE_MESSAGE);
         } finally {
             Arrays.fill(bytes, (byte) 0);
