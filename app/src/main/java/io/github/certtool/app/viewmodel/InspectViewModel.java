@@ -1,5 +1,7 @@
 package io.github.certtool.app.viewmodel;
 
+import io.github.certtool.domain.inspect.InspectedEntry;
+import io.github.certtool.domain.inspect.InspectedKeyStore;
 import io.github.certtool.domain.keystore.EntryType;
 import io.github.certtool.domain.keystore.KeyStoreContainerType;
 import io.github.certtool.domain.load.KeyStoreLoadResult;
@@ -12,7 +14,11 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import javafx.beans.property.IntegerProperty;
 import javafx.beans.property.ObjectProperty;
+import javafx.beans.property.ReadOnlyObjectProperty;
+import javafx.beans.property.ReadOnlyObjectWrapper;
+import javafx.beans.property.SimpleIntegerProperty;
 import javafx.beans.property.SimpleObjectProperty;
 import javafx.beans.property.SimpleStringProperty;
 import javafx.beans.property.StringProperty;
@@ -43,6 +49,23 @@ public final class InspectViewModel {
     private final ObjectProperty<KeyStoreLoadResult> loadResult = new SimpleObjectProperty<>();
     private final StringProperty selectedAlias = new SimpleStringProperty();
     private final ObservableList<NavNode> navNodes = FXCollections.observableArrayList();
+    private final ObjectProperty<InspectedKeyStore> inspected = new SimpleObjectProperty<>();
+    private final ReadOnlyObjectWrapper<InspectedEntry> currentEntry = new ReadOnlyObjectWrapper<>();
+    private final IntegerProperty currentCertificateIndex = new SimpleIntegerProperty(0);
+
+    {
+        selectedAliasProperty().addListener((obs, oldV, newV) -> {
+            recomputeCurrentEntry();
+            currentCertificateIndex.set(0);
+        });
+        inspected.addListener((obs, oldV, newV) -> {
+            if (newV != null && getSelectedAlias() == null && !newV.entries().isEmpty()) {
+                setSelectedAlias(newV.entries().get(0).alias());
+            }
+            recomputeCurrentEntry();
+            currentCertificateIndex.set(0);
+        });
+    }
 
     public ObjectProperty<KeyStoreLoadResult> loadResultProperty() { return loadResult; }
     public KeyStoreLoadResult getLoadResult() { return loadResult.get(); }
@@ -123,5 +146,40 @@ public final class InspectViewModel {
             case SECRET_KEY -> Group.SECRET_KEYS;
             case UNKNOWN -> Group.UNREADABLE_ENTRIES;
         };
+    }
+
+    public ObjectProperty<InspectedKeyStore> inspectedProperty() { return inspected; }
+    public InspectedKeyStore getInspected() { return inspected.get(); }
+    public void setInspected(InspectedKeyStore v) { inspected.set(v); }
+
+    public ReadOnlyObjectProperty<InspectedEntry> currentEntryProperty() {
+        return currentEntry.getReadOnlyProperty();
+    }
+    public InspectedEntry getCurrentEntry() { return currentEntry.get(); }
+
+    public IntegerProperty currentCertificateIndexProperty() { return currentCertificateIndex; }
+    public int getCurrentCertificateIndex() { return currentCertificateIndex.get(); }
+    public void incrementCurrentCertificateIndex() {
+        currentCertificateIndex.set(currentCertificateIndex.get() + 1);
+    }
+    public void decrementCurrentCertificateIndex() {
+        int next = currentCertificateIndex.get() - 1;
+        currentCertificateIndex.set(Math.max(0, next));
+    }
+
+    private void recomputeCurrentEntry() {
+        InspectedKeyStore s = inspected.get();
+        String alias = getSelectedAlias();
+        if (s == null || alias == null) {
+            currentEntry.set(null);
+            return;
+        }
+        for (InspectedEntry e : s.entries()) {
+            if (alias.equals(e.alias())) {
+                currentEntry.set(e);
+                return;
+            }
+        }
+        currentEntry.set(null);
     }
 }
