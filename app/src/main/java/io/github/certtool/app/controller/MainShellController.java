@@ -673,7 +673,13 @@ public final class MainShellController {
                 new FileChooser.ExtensionFilter("All keystores", "*.jks", "*.bcfks", "*.keystore"),
                 new FileChooser.ExtensionFilter("JKS", "*.jks"),
                 new FileChooser.ExtensionFilter("BCFKS", "*.bcfks"));
-        Path path = java.nio.file.Paths.get(chooser.showOpenDialog(stage).getAbsolutePath()).toAbsolutePath();
+        java.io.File selected = chooser.showOpenDialog(stage);
+        if (selected == null) {
+            // User dismissed the chooser without selecting a file — expected, not an error.
+            LOG.debug("Open KeyStore dialog cancelled by user.");
+            return;
+        }
+        Path path = java.nio.file.Paths.get(selected.getAbsolutePath()).toAbsolutePath();
         byte[] bytes;
         try {
             bytes = Files.readAllBytes(path);
