@@ -94,8 +94,8 @@ class MainShellControllerTest {
     }
 
     @Test
-    @DisplayName("selected-file task reads BCFKS truststore bytes during task execution")
-    void selectedFileTaskReadsBcfksTruststoreBytesDuringTaskExecution() throws Exception {
+    @DisplayName("selected-file task detects BCFKS truststore named with a truststore suffix")
+    void selectedFileTaskDetectsBcfksTruststoreNamedWithTruststoreSuffix() throws Exception {
         java.security.cert.X509Certificate certificate = CertificateGenerator.selfSigned(
                 new javax.security.auth.x500.X500Principal("CN=selected-file-trust"),
                 CertificateGenerator.rsaKeyPair(2048),
@@ -103,14 +103,21 @@ class MainShellControllerTest {
                 java.time.Duration.ofDays(7));
         char[] password = new char[0];
         byte[] bytes = KeyStoreGenerator.toBytes(KeyStoreGenerator.bcfks(password, "trust", certificate), password);
-        Path store = Files.createTempFile("cert-tool-truststore", ".bcfks");
+        Path store = Files.createTempFile("cert-tool", ".truststore");
         try {
             Files.write(store, bytes);
 
             var task = composition(new RecordingExecutor()).autoDetectLoadTask(store);
             task.run();
 
-            assertThat(task.get().container()).isEqualTo(KeyStoreContainerType.BCFKS);
+            KeyStoreLoadResult result = task.get();
+
+            assertThat(result.isSuccess()).isTrue();
+            assertThat(result.container()).isEqualTo(KeyStoreContainerType.BCFKS);
+            assertThat(result.entries())
+                    .singleElement()
+                    .extracting(LoadedEntry::entryType)
+                    .isEqualTo(EntryType.TRUSTED_CERTIFICATE);
         } finally {
             Files.deleteIfExists(store);
         }

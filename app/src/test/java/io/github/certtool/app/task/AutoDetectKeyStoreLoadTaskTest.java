@@ -39,4 +39,24 @@ class AutoDetectKeyStoreLoadTaskTest {
         assertThat(result.container()).isEqualTo(KeyStoreContainerType.BCFKS);
         assertThat(result.entries()).singleElement().extracting(LoadedEntry::entryType).isEqualTo(EntryType.TRUSTED_CERTIFICATE);
     }
+
+    @Test
+    @DisplayName("call() detects and loads JKS truststore bytes")
+    void callDetectsAndLoadsJksTruststoreBytes() throws Exception {
+        char[] password = "trustpass".toCharArray();
+        X509Certificate cert = CertificateGenerator.selfSigned(
+                new X500Principal("CN=jks-trust"),
+                CertificateGenerator.rsaKeyPair(2048),
+                "SHA256withRSA",
+                Duration.ofDays(30));
+        byte[] bytes = KeyStoreGenerator.toBytes(KeyStoreGenerator.jks(password, "root", cert), password);
+
+        KeyStoreLoadResult result = new AutoDetectKeyStoreLoadTask(
+                        new KeyStoreLoader(), bytes, new FixedPasswordProvider(password, Map.of()))
+                .call();
+
+        assertThat(result.isSuccess()).isTrue();
+        assertThat(result.container()).isEqualTo(KeyStoreContainerType.JKS);
+        assertThat(result.entries()).singleElement().extracting(LoadedEntry::entryType).isEqualTo(EntryType.TRUSTED_CERTIFICATE);
+    }
 }
