@@ -69,6 +69,14 @@ public final class KeyStoreGenerator {
         return ks;
     }
 
+    /** Returns a PKCS12 keystore containing a single trusted-certificate entry. */
+    public static KeyStore pkcs12(char[] storePassword, String alias, X509Certificate cert) throws Exception {
+        KeyStore ks = KeyStore.getInstance(KeyStoreContainerType.PKCS12.name());
+        ks.load(null, storePassword);
+        ks.setCertificateEntry(alias, cert);
+        return ks;
+    }
+
     /** Returns a BCFKS keystore containing a single private-key entry with the given entry password. */
     public static KeyStore bcfks(
             char[] storePassword, String alias, PrivateKey privateKey, char[] entryPassword, X509Certificate cert)
@@ -120,7 +128,7 @@ public final class KeyStoreGenerator {
 
     private static KeyStore newInstance(KeyStoreContainerType type) throws Exception {
         return switch (type) {
-            case JKS -> KeyStore.getInstance(KeyStoreContainerType.JKS.name());
+            case JKS, PKCS12 -> KeyStore.getInstance(type.name());
             case BCFKS -> KeyStore.getInstance(
                     KeyStoreContainerType.BCFKS.name(), BouncyCastleProvider.PROVIDER_NAME);
         };

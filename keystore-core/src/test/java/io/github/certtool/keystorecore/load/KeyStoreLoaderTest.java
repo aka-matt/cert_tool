@@ -6,6 +6,9 @@ import io.github.certtool.domain.error.LoadFailureReason;
 import io.github.certtool.domain.keystore.KeyStoreContainerType;
 import io.github.certtool.domain.load.KeyStoreLoadResult;
 import io.github.certtool.keystorecore.password.FixedPasswordProvider;
+import io.github.certtool.keystorecore.password.EntryPasswordRequest;
+import io.github.certtool.keystorecore.password.PasswordProvider;
+import io.github.certtool.keystorecore.password.StorePasswordRequest;
 import io.github.certtool.testfixtures.CertificateGenerator;
 import io.github.certtool.testfixtures.KeyStoreGenerator;
 import java.nio.charset.StandardCharsets;
@@ -49,6 +52,16 @@ class KeyStoreLoaderTest {
         return KeyStoreGenerator.toBytes(
                 KeyStoreGenerator.bcfks(STORE_PWD, "t", CertificateGenerator.selfSigned(
                         new X500Principal("CN=t"),
+                        CertificateGenerator.rsaKeyPair(2048),
+                        "SHA256withRSA",
+                        Duration.ofDays(30))),
+                STORE_PWD);
+    }
+
+    private static byte[] pkcs12Bytes() throws Exception {
+        return KeyStoreGenerator.toBytes(
+                KeyStoreGenerator.pkcs12(STORE_PWD, "root", CertificateGenerator.selfSigned(
+                        new X500Principal("CN=root"),
                         CertificateGenerator.rsaKeyPair(2048),
                         "SHA256withRSA",
                         Duration.ofDays(30))),
@@ -178,11 +191,25 @@ class KeyStoreLoaderTest {
         void autoBcfks() throws Exception {
             byte[] bytes = bcfksBytes();
             KeyStoreLoader loader = new KeyStoreLoader();
-            KeyStoreLoadResult r = loader.loadAutoDetect(bytes,
-                    new FixedPasswordProvider(STORE_PWD, null));
+            CountingPasswordProvider passwords = new CountingPasswordProvider(STORE_PWD);
+            KeyStoreLoadResult r = loader.loadAutoDetect(bytes, passwords);
 
             assertThat(r.isSuccess()).isTrue();
             assertThat(r.container()).isEqualTo(KeyStoreContainerType.BCFKS);
+            assertThat(passwords.storePasswordRequests).isEqualTo(1);
+        }
+
+        @Test
+        @DisplayName("auto-detects PKCS12 trusted-certificate entry from raw bytes")
+        void autoPkcs12TrustedCertificate() throws Exception {
+            KeyStoreLoadResult r = new KeyStoreLoader().loadAutoDetect(
+                    pkcs12Bytes(), new FixedPasswordProvider(STORE_PWD, Map.of()));
+
+            assertThat(r.isSuccess()).isTrue();
+            assertThat(r.container()).isEqualTo(KeyStoreContainerType.PKCS12);
+            assertThat(r.entries()).singleElement()
+                    .extracting(entry -> entry.entryType())
+                    .isEqualTo(io.github.certtool.domain.keystore.EntryType.TRUSTED_CERTIFICATE);
         }
 
         @Test
@@ -195,6 +222,26 @@ class KeyStoreLoaderTest {
 
             assertThat(r.isSuccess()).isTrue();
             assertThat(r.container()).isEqualTo(KeyStoreContainerType.JKS);
+        }
+    }
+
+    private static final class CountingPasswordProvider implements PasswordProvider {
+        private final char[] storePassword;
+        private int storePasswordRequests;
+
+        private CountingPasswordProvider(char[] storePassword) {
+            this.storePassword = storePassword.clone();
+        }
+
+        @Override
+        public char[] requestStorePassword(StorePasswordRequest request) {
+            storePasswordRequests++;
+            return storePassword.clone();
+        }
+
+        @Override
+        public char[] requestEntryPassword(EntryPasswordRequest request) {
+            return null;
         }
     }
 }

@@ -30,7 +30,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Loads JKS and BCFKS keystores from raw bytes (binary or Base64).
+ * Loads JKS, BCFKS, and PKCS12 keystores from raw bytes (binary or Base64).
  *
  * <p>This is the central API of the {@code keystore-core} module. It encapsulates {@link KeyStore}
  * and {@link Provider} so the UI never sees them.
@@ -107,7 +107,51 @@ public final class KeyStoreLoader {
         } else {
             bytes = input;
         }
-        return load(bytes, detected.get().container(), passwordProvider);
+        if (detected.get().container() == KeyStoreContainerType.JKS) {
+            return load(bytes, KeyStoreContainerType.JKS, passwordProvider);
+        }
+        return loadDerCandidates(bytes, passwordProvider);
+    }
+
+    /**
+     * Attempts the DER-based containers with one store-password prompt. BCFKS and PKCS12 both
+     * start with an ASN.1 SEQUENCE, so the magic-byte detector cannot distinguish them safely.
+     */
+    private KeyStoreLoadResult loadDerCandidates(byte[] bytes, PasswordProvider passwordProvider) {
+        char[] suppliedPassword = passwordProvider.requestStorePassword(
+                new StorePasswordRequest("bytes", 1, options.maxPasswordAttempts()));
+        if (suppliedPassword == null) {
+            return KeyStoreLoadResult.failure(KeyFailure.of(LoadFailureReason.CANCELLED, "Cancelled by user"));
+        }
+        try (CloningPasswordProvider candidates = new CloningPasswordProvider(passwordProvider, suppliedPassword)) {
+            KeyStoreLoadResult bcfks = load(bytes, KeyStoreContainerType.BCFKS, candidates);
+            KeyStoreLoadResult pkcs12 = load(bytes, KeyStoreContainerType.PKCS12, candidates);
+            if (bcfks.isSuccess() && !pkcs12.isSuccess()) {
+                return bcfks;
+            }
+            if (pkcs12.isSuccess() && !bcfks.isSuccess()) {
+                return pkcs12;
+            }
+            if (bcfks.isSuccess()) {
+                return KeyStoreLoadResult.failure(KeyFailure.of(
+                        LoadFailureReason.AMBIGUOUS_CONTAINER,
+                        "The keystore could be loaded as more than one container type"));
+            }
+            return failedDerCandidate(bcfks, pkcs12);
+        } finally {
+            Arrays.fill(suppliedPassword, '\0');
+        }
+    }
+
+    private static KeyStoreLoadResult failedDerCandidate(KeyStoreLoadResult bcfks, KeyStoreLoadResult pkcs12) {
+        if (bcfks.failure().reason() == LoadFailureReason.WRONG_STORE_PASSWORD
+                || pkcs12.failure().reason() == LoadFailureReason.WRONG_STORE_PASSWORD) {
+            return KeyStoreLoadResult.failure(KeyFailure.of(
+                    LoadFailureReason.WRONG_STORE_PASSWORD,
+                    "Wrong password (or file is corrupted — indeterminate)"));
+        }
+        return KeyStoreLoadResult.failure(KeyFailure.of(
+                LoadFailureReason.UNSUPPORTED_FORMAT, "Unsupported keystore format"));
     }
 
     private KeyStoreLoadResult finishLoad(KeyStoreContainerType container, KeyStore ks, PasswordProvider pw) throws Exception {
@@ -222,9 +266,35 @@ public final class KeyStoreLoader {
     private static KeyStore newInstance(KeyStoreContainerType container) throws Exception {
         ensureBouncyCastleRegistered();
         return switch (container) {
-            case JKS -> KeyStore.getInstance(KeyStoreContainerType.JKS.name());
+            case JKS, PKCS12 -> KeyStore.getInstance(container.name());
             case BCFKS -> KeyStore.getInstance(KeyStoreContainerType.BCFKS.name(), BC_PROVIDER);
         };
+    }
+
+    /** Supplies independently zeroable store-password copies to each DER candidate load. */
+    private static final class CloningPasswordProvider implements PasswordProvider, AutoCloseable {
+        private final PasswordProvider delegate;
+        private final char[] storePassword;
+
+        private CloningPasswordProvider(PasswordProvider delegate, char[] storePassword) {
+            this.delegate = delegate;
+            this.storePassword = storePassword.clone();
+        }
+
+        @Override
+        public char[] requestStorePassword(StorePasswordRequest request) {
+            return storePassword.clone();
+        }
+
+        @Override
+        public char[] requestEntryPassword(EntryPasswordRequest request) {
+            return delegate.requestEntryPassword(request);
+        }
+
+        @Override
+        public void close() {
+            Arrays.fill(storePassword, '\0');
+        }
     }
 
     private static synchronized void ensureBouncyCastleRegistered() {
