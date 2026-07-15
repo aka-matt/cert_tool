@@ -21,6 +21,7 @@ import java.util.Map;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.util.Optional;
+import javafx.concurrent.Task;
 import javafx.concurrent.Worker;
 import javafx.geometry.Insets;
 import javafx.scene.Node;
@@ -76,6 +77,8 @@ public final class MainShellController {
     private Node inspectViewNode;
     private ProgressBar progress;
     private Label statusMessage;
+    private volatile Task<?> currentLoadTask;
+    private volatile AnalyzeKeyStoreTask currentAnalyzeTask;
 
     public MainShellController(AppComposition composition, Stage stage) {
         this.composition = composition;
@@ -622,6 +625,7 @@ public final class MainShellController {
         KeyStoreContainerType container = path.toString().toLowerCase().endsWith(".bcfks")
                 ? KeyStoreContainerType.BCFKS : KeyStoreContainerType.JKS;
         LoadKeyStoreTask task = composition.loadTask(bytes, container);
+        activateLoadTask(task);
         task.stateProperty().addListener((obs, oldS, newS) -> updateProgress(newS, task.getProgress()));
         task.messageProperty().addListener((obs, oldM, newM) -> {
             if (newM != null && !newM.isEmpty()) {
@@ -629,20 +633,14 @@ public final class MainShellController {
             }
         });
         task.setOnSucceeded(evt -> {
+            if (task != currentLoadTask) {
+                return;
+            }
             KeyStoreLoadResult result = task.getValue();
             composition.inspectController().onLoadResult(result);
             composition.inspectController().applyInspection(null);
             AnalyzeKeyStoreTask analyze = composition.analyzeTask(result, ContentEncoding.BINARY);
-            analyze.stateProperty().addListener((o, oldS, newS) ->
-                    updateProgress(newS, analyze.getProgress()));
-            analyze.messageProperty().addListener((o, oldM, newM) -> {
-                if (newM != null && !newM.isEmpty()) setStatus(newM);
-            });
-            analyze.setOnSucceeded(analyzeEvt -> {
-                composition.inspectController().applyInspection(analyze.getValue());
-                setStatus("Analyzed " + path.getFileName());
-            });
-            composition.backgroundExecutor().submit(analyze);
+            submitAnalyzeTask(analyze, task, () -> setStatus("Analyzed " + path.getFileName()));
             statusMessage.setText("Loaded: " + path.getFileName());
         });
         task.setOnFailed(evt -> statusMessage.setText("Load failed."));
@@ -684,8 +682,8 @@ public final class MainShellController {
             composition.inspectController().onLoadResult(result);
             composition.inspectController().applyInspection(null);
             AnalyzeKeyStoreTask analyze = composition.analyzeTask(result, ContentEncoding.BASE64);
-            bindAnalyzeTask(analyze, () -> setStatus("Analyzed pasted keystore."));
-            composition.backgroundExecutor().submit(analyze);
+            submitAnalyzeTask(analyze, currentLoadTask,
+                    () -> setStatus("Analyzed pasted keystore."));
             setStatus("Pasted keystore loaded.");
         } else if (isAmbiguous(result)) {
             containerTypeSelector.choose().ifPresent(container -> submitSelectedContainerLoad(input, container));
@@ -718,8 +716,8 @@ public final class MainShellController {
                 composition.inspectController().onLoadResult(result);
                 composition.inspectController().applyInspection(null);
                 AnalyzeKeyStoreTask analyze = composition.analyzeTask(result, ContentEncoding.BASE64);
-                bindAnalyzeTask(analyze, () -> setStatus("Analyzed pasted keystore."));
-                composition.backgroundExecutor().submit(analyze);
+                submitAnalyzeTask(analyze, task,
+                        () -> setStatus("Analyzed pasted keystore."));
                 setStatus("Pasted keystore loaded.");
             } else {
                 setStatus("Could not load pasted keystore.");
@@ -727,19 +725,53 @@ public final class MainShellController {
         });
     }
 
-    private void bindLoadTask(javafx.concurrent.Task<KeyStoreLoadResult> task, Runnable onSucceeded) {
+    private void bindLoadTask(Task<KeyStoreLoadResult> task, Runnable onSucceeded) {
+        activateLoadTask(task);
         task.stateProperty().addListener((obs, oldS, newS) -> updateProgress(newS, task.getProgress()));
         task.messageProperty().addListener((obs, oldM, newM) -> {
             if (newM != null && !newM.isEmpty()) {
                 setStatus(newM);
             }
         });
-        task.setOnSucceeded(evt -> onSucceeded.run());
+        task.setOnSucceeded(evt -> {
+            if (task == currentLoadTask) {
+                onSucceeded.run();
+            }
+        });
         task.setOnFailed(evt -> setStatus("Could not load pasted keystore."));
         composition.backgroundExecutor().submit(task);
     }
 
-    private void bindAnalyzeTask(AnalyzeKeyStoreTask analyze, Runnable onAnalyzed) {
+    void activateLoadTask(Task<?> task) {
+        Task<?> previousLoad = currentLoadTask;
+        if (previousLoad != null && previousLoad != task && !previousLoad.isDone()) {
+            previousLoad.cancel();
+        }
+        AnalyzeKeyStoreTask previousAnalyze = currentAnalyzeTask;
+        if (previousAnalyze != null && !previousAnalyze.isDone()) {
+            previousAnalyze.cancel();
+        }
+        currentAnalyzeTask = null;
+        currentLoadTask = task;
+    }
+
+    void submitAnalyzeTask(AnalyzeKeyStoreTask analyze, Task<?> loadTask, Runnable onAnalyzed) {
+        if (loadTask != currentLoadTask) {
+            analyze.cancel();
+            return;
+        }
+        AnalyzeKeyStoreTask previousAnalyze = currentAnalyzeTask;
+        if (previousAnalyze != null && previousAnalyze != analyze && !previousAnalyze.isDone()) {
+            previousAnalyze.cancel();
+        }
+        currentLoadTask = loadTask;
+        currentAnalyzeTask = analyze;
+        bindAnalyzeTask(analyze, loadTask, onAnalyzed);
+        composition.backgroundExecutor().submit(analyze);
+    }
+
+    private void bindAnalyzeTask(
+            AnalyzeKeyStoreTask analyze, Task<?> loadTask, Runnable onAnalyzed) {
         analyze.stateProperty().addListener((obs, oldS, newS) ->
                 updateProgress(newS, analyze.getProgress()));
         analyze.messageProperty().addListener((obs, oldM, newM) -> {
@@ -748,9 +780,16 @@ public final class MainShellController {
             }
         });
         analyze.setOnSucceeded(evt -> {
+            if (loadTask != currentLoadTask || analyze != currentAnalyzeTask) {
+                return;
+            }
             composition.inspectController().applyInspection(analyze.getValue());
             onAnalyzed.run();
         });
+    }
+
+    Task<?> currentLoadTask() {
+        return currentLoadTask;
     }
 
     private void setStatus(String message) {
@@ -765,6 +804,9 @@ public final class MainShellController {
     }
 
     private void updateProgress(Worker.State state, double progressValue) {
+        if (progress == null) {
+            return;
+        }
         if (state == Worker.State.RUNNING) {
             progress.setVisible(true);
             progress.setProgress(progressValue < 0 ? 0 : progressValue);

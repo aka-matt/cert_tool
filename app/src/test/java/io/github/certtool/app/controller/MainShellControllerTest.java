@@ -6,6 +6,7 @@ import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
 import io.github.certtool.app.AppComposition;
 import io.github.certtool.app.settings.SettingsService;
+import io.github.certtool.app.task.AnalyzeKeyStoreTask;
 import io.github.certtool.app.theme.ThemeMode;
 import io.github.certtool.app.theme.ThemeService;
 import io.github.certtool.app.viewmodel.ComplianceViewModel;
@@ -16,6 +17,8 @@ import io.github.certtool.compliance.core.AssessmentEngine;
 import io.github.certtool.compliance.core.DefaultRules;
 import io.github.certtool.domain.error.LoadFailure;
 import io.github.certtool.domain.error.LoadFailureReason;
+import io.github.certtool.domain.inspect.InspectedKeyStore;
+import io.github.certtool.domain.keystore.ContentEncoding;
 import io.github.certtool.domain.keystore.KeyStoreContainerType;
 import io.github.certtool.domain.load.KeyStoreLoadResult;
 import io.github.certtool.domain.load.LoadedEntry;
@@ -30,6 +33,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.AbstractExecutorService;
 import java.util.concurrent.TimeUnit;
 import javafx.application.Platform;
+import javafx.concurrent.Task;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -161,6 +165,67 @@ class MainShellControllerTest {
 
         javafx.scene.Node view = controller.inspectView();
         assertThat(view).isNotNull();
+    }
+
+    @Test
+    @DisplayName("a stale analyze completion cannot replace the current inspection")
+    void staleAnalyzeCompletionDoesNotReplaceCurrentInspection() throws Exception {
+        RecordingExecutor executor = new RecordingExecutor();
+        AppComposition composition = composition(executor);
+        MainShellController controller = new MainShellController(composition, null);
+        KeyStoreLoadResult resultA = KeyStoreLoadResult.success(
+                KeyStoreContainerType.JKS, "provider-a", "1", List.of());
+        KeyStoreLoadResult resultB = KeyStoreLoadResult.success(
+                KeyStoreContainerType.BCFKS, "provider-b", "2", List.of());
+        Task<KeyStoreLoadResult> loadA = loadTask(resultA);
+        Task<KeyStoreLoadResult> loadB = loadTask(resultB);
+        AnalyzeKeyStoreTask analyzeA = new AnalyzeKeyStoreTask(resultA, ContentEncoding.BINARY);
+        AnalyzeKeyStoreTask analyzeB = new AnalyzeKeyStoreTask(resultB, ContentEncoding.BINARY);
+        analyzeB.run();
+        InspectedKeyStore expectedB = analyzeB.get(5, TimeUnit.SECONDS);
+
+        runOnFxThreadAndWait(() -> {
+            controller.activateLoadTask(loadA);
+            controller.submitAnalyzeTask(analyzeA, loadA, () -> { });
+            controller.activateLoadTask(loadB);
+            controller.submitAnalyzeTask(analyzeB, loadB, () -> { });
+
+            analyzeB.getOnSucceeded().handle(null);
+            analyzeA.getOnSucceeded().handle(null);
+        });
+
+        assertThat(composition.inspectVm().getInspected()).isSameAs(expectedB);
+        assertThat(controller.currentLoadTask()).isSameAs(loadB);
+        assertThat(loadA.isCancelled()).isTrue();
+        assertThat(analyzeA.isCancelled()).isTrue();
+    }
+
+    private static void runOnFxThreadAndWait(Runnable action) throws Exception {
+        java.util.concurrent.CountDownLatch completed = new java.util.concurrent.CountDownLatch(1);
+        java.util.concurrent.atomic.AtomicReference<Throwable> failure =
+                new java.util.concurrent.atomic.AtomicReference<>();
+        Platform.runLater(() -> {
+            try {
+                action.run();
+            } catch (Throwable thrown) {
+                failure.set(thrown);
+            } finally {
+                completed.countDown();
+            }
+        });
+        assertThat(completed.await(5, TimeUnit.SECONDS)).isTrue();
+        if (failure.get() != null) {
+            throw new AssertionError("FX action failed", failure.get());
+        }
+    }
+
+    private static Task<KeyStoreLoadResult> loadTask(KeyStoreLoadResult result) {
+        return new Task<>() {
+            @Override
+            protected KeyStoreLoadResult call() {
+                return result;
+            }
+        };
     }
 
     private static KeyStoreLoadResult failure(LoadFailureReason reason) {
