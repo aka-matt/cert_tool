@@ -101,7 +101,8 @@ class MainShellControllerTest {
         assertThat(composition.inspectVm().getLoadResult()).isNotNull();
         assertThat(composition.inspectVm().getLoadResult().container()).isEqualTo(KeyStoreContainerType.JKS);
         assertThat(selections).hasValue(0);
-        assertThat(executor.submittedTasks()).isEmpty();
+        // Success branch now chains exactly one analyze task (no selection, no retry load).
+        assertThat(executor.submittedTasks()).hasSize(1);
     }
 
     @Test

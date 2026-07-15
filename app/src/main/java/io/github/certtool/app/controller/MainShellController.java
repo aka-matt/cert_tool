@@ -2,6 +2,7 @@ package io.github.certtool.app.controller;
 
 import io.github.certtool.app.AppComposition;
 import io.github.certtool.app.settings.Settings;
+import io.github.certtool.app.task.AnalyzeKeyStoreTask;
 import io.github.certtool.app.task.LoadKeyStoreTask;
 import io.github.certtool.app.viewmodel.InspectViewModel;
 import io.github.certtool.domain.inspect.InspectedCertificate;
@@ -630,6 +631,18 @@ public final class MainShellController {
         task.setOnSucceeded(evt -> {
             KeyStoreLoadResult result = task.getValue();
             composition.inspectController().onLoadResult(result);
+            composition.inspectController().applyInspection(null);
+            AnalyzeKeyStoreTask analyze = composition.analyzeTask(result, ContentEncoding.BINARY);
+            analyze.stateProperty().addListener((o, oldS, newS) ->
+                    updateProgress(newS, analyze.getProgress()));
+            analyze.messageProperty().addListener((o, oldM, newM) -> {
+                if (newM != null && !newM.isEmpty()) setStatus(newM);
+            });
+            analyze.setOnSucceeded(analyzeEvt -> {
+                composition.inspectController().applyInspection(analyze.getValue());
+                setStatus("Analyzed " + path.getFileName());
+            });
+            composition.backgroundExecutor().submit(analyze);
             statusMessage.setText("Loaded: " + path.getFileName());
         });
         task.setOnFailed(evt -> statusMessage.setText("Load failed."));
@@ -669,6 +682,10 @@ public final class MainShellController {
             String input, KeyStoreLoadResult result, ContainerTypeSelector containerTypeSelector) {
         if (result != null && result.isSuccess()) {
             composition.inspectController().onLoadResult(result);
+            composition.inspectController().applyInspection(null);
+            AnalyzeKeyStoreTask analyze = composition.analyzeTask(result, ContentEncoding.BASE64);
+            bindAnalyzeTask(analyze, () -> setStatus("Analyzed pasted keystore."));
+            composition.backgroundExecutor().submit(analyze);
             setStatus("Pasted keystore loaded.");
         } else if (isAmbiguous(result)) {
             containerTypeSelector.choose().ifPresent(container -> submitSelectedContainerLoad(input, container));
@@ -699,6 +716,10 @@ public final class MainShellController {
             KeyStoreLoadResult result = task.getValue();
             if (result != null && result.isSuccess()) {
                 composition.inspectController().onLoadResult(result);
+                composition.inspectController().applyInspection(null);
+                AnalyzeKeyStoreTask analyze = composition.analyzeTask(result, ContentEncoding.BASE64);
+                bindAnalyzeTask(analyze, () -> setStatus("Analyzed pasted keystore."));
+                composition.backgroundExecutor().submit(analyze);
                 setStatus("Pasted keystore loaded.");
             } else {
                 setStatus("Could not load pasted keystore.");
@@ -716,6 +737,20 @@ public final class MainShellController {
         task.setOnSucceeded(evt -> onSucceeded.run());
         task.setOnFailed(evt -> setStatus("Could not load pasted keystore."));
         composition.backgroundExecutor().submit(task);
+    }
+
+    private void bindAnalyzeTask(AnalyzeKeyStoreTask analyze, Runnable onAnalyzed) {
+        analyze.stateProperty().addListener((obs, oldS, newS) ->
+                updateProgress(newS, analyze.getProgress()));
+        analyze.messageProperty().addListener((obs, oldM, newM) -> {
+            if (newM != null && !newM.isEmpty()) {
+                setStatus(newM);
+            }
+        });
+        analyze.setOnSucceeded(evt -> {
+            composition.inspectController().applyInspection(analyze.getValue());
+            onAnalyzed.run();
+        });
     }
 
     private void setStatus(String message) {
