@@ -6,6 +6,7 @@ import io.github.certtool.app.controller.InspectController;
 import io.github.certtool.app.controller.RuntimeController;
 import io.github.certtool.app.settings.SettingsService;
 import io.github.certtool.app.task.AssessmentTask;
+import io.github.certtool.app.task.AnalyzeKeyStoreTask;
 import io.github.certtool.app.task.ConvertTask;
 import io.github.certtool.app.task.ExportReportTask;
 import io.github.certtool.app.task.LoadKeyStoreTask;
@@ -21,7 +22,9 @@ import io.github.certtool.compliance.core.AssessmentEngine;
 import io.github.certtool.compliance.core.DefaultRules;
 import io.github.certtool.compliance.core.RuleRegistry;
 import io.github.certtool.domain.context.RuleContext;
+import io.github.certtool.domain.keystore.ContentEncoding;
 import io.github.certtool.domain.keystore.KeyStoreContainerType;
+import io.github.certtool.domain.load.KeyStoreLoadResult;
 import io.github.certtool.domain.profile.Profile;
 import io.github.certtool.keystorecore.load.KeyStoreLoader;
 import io.github.certtool.keystorecore.password.PasswordProvider;
@@ -48,6 +51,7 @@ public final class AppComposition {
     private final Supplier<PasswordProvider> passwordProviderSource;
     private final ExecutorService backgroundExecutor;
     private final KeyStoreLoader loader;
+    private final java.util.function.BiFunction<KeyStoreLoadResult, ContentEncoding, AnalyzeKeyStoreTask> analyzerFactory;
     private final AssessmentEngine assessmentEngine;
 
     private final InspectViewModel inspectVm;
@@ -69,6 +73,7 @@ public final class AppComposition {
         this.passwordProviderSource = Objects.requireNonNull(b.passwordProviderSource, "passwordProviderSource");
         this.backgroundExecutor = Objects.requireNonNull(b.backgroundExecutor, "backgroundExecutor");
         this.loader = Objects.requireNonNull(b.loader, "loader");
+        this.analyzerFactory = Objects.requireNonNull(b.analyzerFactory, "analyzerFactory");
         this.assessmentEngine = Objects.requireNonNull(b.assessmentEngine, "assessmentEngine");
         this.ruleRegistry = Objects.requireNonNull(b.ruleRegistry, "ruleRegistry");
         this.inspectVm = Objects.requireNonNull(b.inspectVm, "inspectVm");
@@ -116,6 +121,7 @@ public final class AppComposition {
                         new char[0], java.util.Map.of()))
                 .backgroundExecutor(exec)
                 .loader(new KeyStoreLoader())
+                .analyzerFactory(AnalyzeKeyStoreTask::new)
                 .assessmentEngine(new AssessmentEngine())
                 .ruleRegistry(DefaultRules.registry())
                 .inspectVm(inspectVm)
@@ -137,6 +143,11 @@ public final class AppComposition {
     /** Builds a {@link LoadKeyStoreTask} on demand using the active password provider. */
     public LoadKeyStoreTask loadTask(byte[] bytes, KeyStoreContainerType container) {
         return new LoadKeyStoreTask(loader, bytes, container, activePasswordProvider);
+    }
+
+    /** Builds an {@link AnalyzeKeyStoreTask} on demand via the configured factory. */
+    public AnalyzeKeyStoreTask analyzeTask(KeyStoreLoadResult result, ContentEncoding encoding) {
+        return analyzerFactory.apply(result, encoding);
     }
 
     /** Builds a Base64 paste loading task on demand using the active password provider. */
@@ -184,6 +195,7 @@ public final class AppComposition {
         private Supplier<PasswordProvider> passwordProviderSource;
         private ExecutorService backgroundExecutor;
         private KeyStoreLoader loader;
+        private java.util.function.BiFunction<KeyStoreLoadResult, ContentEncoding, AnalyzeKeyStoreTask> analyzerFactory;
         private AssessmentEngine assessmentEngine;
         private RuleRegistry ruleRegistry;
         private InspectViewModel inspectVm;
@@ -200,6 +212,10 @@ public final class AppComposition {
         public Builder passwordProviderSource(Supplier<PasswordProvider> v) { this.passwordProviderSource = v; return this; }
         public Builder backgroundExecutor(ExecutorService v) { this.backgroundExecutor = v; return this; }
         public Builder loader(KeyStoreLoader v) { this.loader = v; return this; }
+        public Builder analyzerFactory(java.util.function.BiFunction<KeyStoreLoadResult, ContentEncoding, AnalyzeKeyStoreTask> v) {
+            this.analyzerFactory = v;
+            return this;
+        }
         public Builder assessmentEngine(AssessmentEngine v) { this.assessmentEngine = v; return this; }
         public Builder ruleRegistry(RuleRegistry v) { this.ruleRegistry = v; return this; }
         public Builder inspectVm(InspectViewModel v) { this.inspectVm = v; return this; }

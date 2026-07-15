@@ -143,6 +143,8 @@ class MainShellControllerTest {
                 .themeService(new NoOpThemeService())
                 .passwordProviderSource(() -> new FixedPasswordProvider(new char[0], Map.of()))
                 .backgroundExecutor(executor)
+                .analyzerFactory((r, e) -> new io.github.certtool.app.task.AnalyzeKeyStoreTask(
+                        r, e))
                 .loader(new KeyStoreLoader())
                 .assessmentEngine(new AssessmentEngine())
                 .ruleRegistry(DefaultRules.registry())
