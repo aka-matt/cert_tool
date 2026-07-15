@@ -723,6 +723,7 @@ public final class MainShellController {
         input.setPromptText("Paste Base64-encoded keystore data");
         input.setPrefColumnCount(72);
         input.setPrefRowCount(16);
+        input.setWrapText(true);
         dialog.getDialogPane().setContent(input);
         dialog.setResultConverter(button -> button == ButtonType.OK ? input.getText() : null);
         dialog.showAndWait().ifPresent(this::handlePastedBase64);
