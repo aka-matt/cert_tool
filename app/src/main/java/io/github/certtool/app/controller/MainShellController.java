@@ -75,6 +75,7 @@ public final class MainShellController {
     private final Stage stage;
     private BorderPane root;
     private Node inspectViewNode;
+    private SplitPane inspectSplit;
     private ProgressBar progress;
     private Label statusMessage;
     private volatile Task<?> currentLoadTask;
@@ -115,21 +116,24 @@ public final class MainShellController {
             stage.setY(s.windowY());
         }
 
+        restoreInspectDividerPosition(s);
+
         stage.setTitle("Cert Tool");
         stage.setScene(scene);
         stage.show();
     }
 
-    /** Persists the current window bounds back to settings. */
+    /** Persists the current window bounds and Inspect divider position back to settings. */
     public void persistBounds() {
         try {
             Settings current = composition.settingsService().load();
             Settings updated = current
                     .withWindowBounds(stage.getX(), stage.getY(),
-                            stage.getWidth(), stage.getHeight());
+                            stage.getWidth(), stage.getHeight())
+                    .withLeftDividerPosition(inspectDividerPosition());
             composition.settingsService().save(updated);
         } catch (IOException e) {
-            LOG.warn("Failed to persist window bounds", e);
+            LOG.warn("Failed to persist window layout", e);
         }
     }
 
@@ -139,6 +143,25 @@ public final class MainShellController {
             inspectViewNode = buildInspectView();
         }
         return inspectViewNode;
+    }
+
+    void restoreInspectDividerPosition(Settings settings) {
+        if (inspectSplit == null) {
+            return;
+        }
+        double position = 0.25;
+        Double saved = settings.leftDividerPosition();
+        if (saved != null && Double.isFinite(saved) && saved > 0.0 && saved < 1.0) {
+            position = Math.max(0.05, Math.min(0.95, saved));
+        }
+        inspectSplit.setDividerPositions(position);
+    }
+
+    double inspectDividerPosition() {
+        if (inspectSplit == null || inspectSplit.getDividerPositions().length == 0) {
+            return 0.25;
+        }
+        return inspectSplit.getDividerPositions()[0];
     }
 
     private Node buildMenuBar() {
@@ -197,6 +220,7 @@ public final class MainShellController {
 
         Label placeholder = new Label("Open a KeyStore to inspect.");
         SplitPane split = new SplitPane();
+        inspectSplit = split;
         split.setDividerPositions(0.25);
         split.setVisible(false); // hidden until a keystore is loaded
 

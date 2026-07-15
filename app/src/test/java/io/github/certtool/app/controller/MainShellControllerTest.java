@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
 import io.github.certtool.app.AppComposition;
+import io.github.certtool.app.settings.Settings;
 import io.github.certtool.app.settings.SettingsService;
 import io.github.certtool.app.task.AnalyzeKeyStoreTask;
 import io.github.certtool.app.theme.ThemeMode;
@@ -165,6 +166,19 @@ class MainShellControllerTest {
 
         javafx.scene.Node view = controller.inspectView();
         assertThat(view).isNotNull();
+    }
+
+    @Test
+    @DisplayName("restores the persisted Inspect divider position")
+    void restoresInspectDividerPosition() throws Exception {
+        MainShellController controller =
+                new MainShellController(composition(new RecordingExecutor()), null);
+        controller.inspectView();
+
+        controller.restoreInspectDividerPosition(
+                Settings.defaults().withLeftDividerPosition(0.4));
+
+        assertThat(controller.inspectDividerPosition()).isEqualTo(0.4);
     }
 
     @Test

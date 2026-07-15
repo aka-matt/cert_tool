@@ -77,6 +77,13 @@ public record Settings(
                 windowX, windowY, leftDividerPosition, rightDividerPosition);
     }
 
+    /** Returns a copy with the left divider position replaced. */
+    public Settings withLeftDividerPosition(double position) {
+        return new Settings(theme, recentFiles, lastExportFormat,
+                lastAssessmentProfileId, windowWidth, windowHeight,
+                windowX, windowY, position, rightDividerPosition);
+    }
+
     /** Returns a copy with window bounds replaced. */
     public Settings withWindowBounds(double x, double y, double w, double h) {
         return new Settings(theme, recentFiles, lastExportFormat,
