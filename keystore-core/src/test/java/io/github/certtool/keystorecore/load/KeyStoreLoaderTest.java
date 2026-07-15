@@ -12,6 +12,7 @@ import io.github.certtool.keystorecore.password.StorePasswordRequest;
 import io.github.certtool.testfixtures.CertificateGenerator;
 import io.github.certtool.testfixtures.KeyStoreGenerator;
 import java.nio.charset.StandardCharsets;
+import java.security.KeyStore;
 import java.time.Duration;
 import java.util.Base64;
 import java.util.Map;
@@ -213,6 +214,22 @@ class KeyStoreLoaderTest {
         }
 
         @Test
+        @DisplayName("auto-detects a PKCS12 with a three-byte DER length using one password prompt")
+        void autoPkcs12WithThreeByteDerLength() throws Exception {
+            byte[] bytes = largePkcs12Bytes();
+            CountingPasswordProvider passwords = new CountingPasswordProvider(STORE_PWD);
+
+            KeyStoreLoadResult r = new KeyStoreLoader().loadAutoDetect(bytes, passwords);
+
+            assertThat(bytes).hasSizeGreaterThan(65_535);
+            assertThat(bytes[0]).isEqualTo((byte) 0x30);
+            assertThat(bytes[1]).isEqualTo((byte) 0x83);
+            assertThat(r.isSuccess()).isTrue();
+            assertThat(r.container()).isEqualTo(KeyStoreContainerType.PKCS12);
+            assertThat(passwords.storePasswordRequests).isEqualTo(1);
+        }
+
+        @Test
         @DisplayName("auto-detects Base64-encoded JKS")
         void autoJksBase64() throws Exception {
             String b64 = Base64.getMimeEncoder().encodeToString(jksTrustedCertBytes());
@@ -223,6 +240,20 @@ class KeyStoreLoaderTest {
             assertThat(r.isSuccess()).isTrue();
             assertThat(r.container()).isEqualTo(KeyStoreContainerType.JKS);
         }
+    }
+
+    private static byte[] largePkcs12Bytes() throws Exception {
+        KeyStore keyStore = KeyStore.getInstance(KeyStoreContainerType.PKCS12.name());
+        keyStore.load(null, STORE_PWD);
+        var certificate = CertificateGenerator.selfSigned(
+                new X500Principal("CN=large"),
+                CertificateGenerator.rsaKeyPair(2048),
+                "SHA256withRSA",
+                Duration.ofDays(30));
+        for (int i = 0; i < 128; i++) {
+            keyStore.setCertificateEntry("certificate-" + i, certificate);
+        }
+        return KeyStoreGenerator.toBytes(keyStore, STORE_PWD);
     }
 
     private static final class CountingPasswordProvider implements PasswordProvider {

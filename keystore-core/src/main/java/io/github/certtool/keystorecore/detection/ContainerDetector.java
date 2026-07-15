@@ -28,8 +28,7 @@ public final class ContainerDetector {
     /**
      * BCFKS magic: the payload is a DER-encoded ASN.1 SEQUENCE (a PKCS#8
      * EncryptedPrivateKeyInfo wrapping the keystore contents). The first byte is {@code 0x30} and
-     * the second byte is either the single-byte length or {@code 0x82} (multi-byte length
-     * indicator).
+     * the second byte is either the single-byte length or a definite long-form length indicator.
      *
      * <p>This is a necessary-but-not-sufficient condition; the auto-detector attempts a real load
      * to confirm.
@@ -64,15 +63,9 @@ public final class ContainerDetector {
         if ((second & 0x80) == 0) {
             return true;
         }
-        // Multi-byte length indicator: 0x81 (1 length byte follows) or 0x82 (2 length bytes follow).
-        if (second == 0x81 && bytes.length >= 3) {
-            return true;
-        }
-        if (second == 0x82 && bytes.length >= 4) {
-            int len = ((bytes[2] & 0xFF) << 8) | (bytes[3] & 0xFF);
-            // Reject obviously-too-small lengths for a keystore.
-            return len >= 16;
-        }
-        return false;
+        // DER definite long-form length. A Java byte[] can hold at most a four-byte length,
+        // including the 0x83 form used by containers larger than 64 KiB.
+        int lengthByteCount = second & 0x7F;
+        return lengthByteCount >= 1 && lengthByteCount <= Integer.BYTES && bytes.length >= 2 + lengthByteCount;
     }
 }
