@@ -237,10 +237,13 @@ public final class MainShellController {
             boolean loaded = newV != null && newV.isSuccess();
             placeholder.setVisible(!loaded);
             split.setVisible(loaded);
+            tabs.getTabs().get(0).setContent(new ScrollPane(buildOverviewContent(
+                    composition.inspectVm().getInspected(), newV)));
         });
         composition.inspectVm().inspectedProperty().addListener((obs, oldV, newV) -> {
             rebuildInspectTree(tree);
-            tabs.getTabs().get(0).setContent(new ScrollPane(buildOverviewContent(newV)));
+            tabs.getTabs().get(0).setContent(new ScrollPane(buildOverviewContent(
+                    newV, composition.inspectVm().getLoadResult())));
         });
         composition.inspectVm().selectedAliasProperty().addListener((obs, oldV, newV) -> {
             updateInspectDetailTabs(tabs);
@@ -278,7 +281,8 @@ public final class MainShellController {
         TabPane tabs = new TabPane();
         Tab overview = new Tab("Overview");
         overview.setClosable(false);
-        overview.setContent(new ScrollPane(buildOverviewContent(null)));
+        overview.setContent(new ScrollPane(buildOverviewContent(
+                composition.inspectVm().getInspected(), composition.inspectVm().getLoadResult())));
         Tab certificate = new Tab("Certificate");
         certificate.setClosable(false);
         certificate.setContent(new ScrollPane(buildCertificateContent(null, 0, 0)));
@@ -340,11 +344,14 @@ public final class MainShellController {
         };
     }
 
-    private Node buildOverviewContent(InspectedKeyStore inspected) {
+    Node buildOverviewContent(
+            InspectedKeyStore inspected, KeyStoreLoadResult loadResult) {
         VBox box = new VBox(8);
         box.setPadding(new Insets(8));
         if (inspected == null) {
-            box.getChildren().add(new Label("No keystore loaded."));
+            String message = loadResult != null && loadResult.isSuccess()
+                    ? "Analyzing entries…" : "No keystore loaded.";
+            box.getChildren().add(new Label(message));
             return box;
         }
         var s = inspected.summary();

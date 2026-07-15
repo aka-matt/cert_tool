@@ -35,6 +35,9 @@ import java.util.concurrent.AbstractExecutorService;
 import java.util.concurrent.TimeUnit;
 import javafx.application.Platform;
 import javafx.concurrent.Task;
+import javafx.scene.Node;
+import javafx.scene.control.Label;
+import javafx.scene.layout.VBox;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -179,6 +182,25 @@ class MainShellControllerTest {
                 Settings.defaults().withLeftDividerPosition(0.4));
 
         assertThat(controller.inspectDividerPosition()).isEqualTo(0.4);
+    }
+
+    @Test
+    @DisplayName("Overview distinguishes analyzing from no keystore loaded")
+    void overviewDistinguishesAnalyzingFromUnloaded() throws Exception {
+        MainShellController controller =
+                new MainShellController(composition(new RecordingExecutor()), null);
+        KeyStoreLoadResult loaded = KeyStoreLoadResult.success(
+                KeyStoreContainerType.JKS, "provider", "1", List.of());
+
+        Node analyzing = controller.buildOverviewContent(null, loaded);
+        Node unloaded = controller.buildOverviewContent(null, null);
+
+        assertThat(overviewMessage(analyzing)).isEqualTo("Analyzing entries…");
+        assertThat(overviewMessage(unloaded)).isEqualTo("No keystore loaded.");
+    }
+
+    private static String overviewMessage(Node overview) {
+        return ((Label) ((VBox) overview).getChildren().get(0)).getText();
     }
 
     @Test
