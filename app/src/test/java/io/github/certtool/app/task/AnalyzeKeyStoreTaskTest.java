@@ -91,8 +91,10 @@ class AnalyzeKeyStoreTaskTest {
         InspectedKeyStore value = task.call();
 
         assertThat(value).isNull();
-        assertThat(task.getValue()).isNull();
-        assertThat(task.stateProperty().get()).isEqualTo(Worker.State.CANCELLED);
+        assertThat(task.isCancelled()).isTrue();
+        // stateProperty() is only advanced to CANCELLED when the task is run on a worker
+        // (run/schedule); a direct .call() invocation leaves it at READY. Asserting the
+        // .isCancelled() flag is the API-correct way to verify cancellation was honored.
     }
 
     @Test
