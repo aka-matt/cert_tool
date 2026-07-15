@@ -403,6 +403,107 @@ public final class MainShellController {
         grid.add(new Label(value == null ? "" : value), 1, row);
     }
 
+    private Node buildChainContent(InspectedEntry entry) {
+        VBox box = new VBox(4);
+        box.setPadding(new Insets(8));
+        if (entry == null) {
+            box.getChildren().add(new Label("Select an alias to view its chain."));
+            return box;
+        }
+        Label header = new Label(entry.certificates().size() + " certificate(s) in this chain.");
+        header.setStyle("-fx-font-weight: bold;");
+        box.getChildren().add(header);
+        int i = 0;
+        for (var c : entry.certificates()) {
+            var a = c.analysis();
+            String txt = (i) + ". " + a.subject() + "  |  issuer: " + a.issuer()
+                    + "  |  valid to: " + a.validity().notAfter()
+                    + "  |  " + (a.selfSigned().isFullySelfSigned() ? "self-signed" : "—");
+            box.getChildren().add(new Label(txt));
+            i++;
+        }
+        if (entry.certificates().isEmpty()) {
+            box.getChildren().add(new Label("Entry has no certificate chain."));
+        }
+        return box;
+    }
+
+    private Node buildExtensionsContent(InspectedCertificate cert) {
+        VBox box = new VBox(4);
+        box.setPadding(new Insets(8));
+        if (cert == null) {
+            box.getChildren().add(new Label("Select a certificate to view its extensions."));
+            return box;
+        }
+        var exts = cert.analysis().extensions();
+        if (!exts.unrecognizedCriticalOids().isEmpty()) {
+            Label warn = new Label("⚠ Unrecognized critical extensions: "
+                    + String.join(", ", exts.unrecognizedCriticalOids()));
+            warn.setStyle("-fx-text-fill: #a04000; -fx-font-weight: bold;");
+            box.getChildren().add(warn);
+        }
+        addRow(box, "Basic Constraints (CA)",
+                String.valueOf(exts.basicConstraints().isCa()));
+        addRow(box, "Path Length",
+                exts.basicConstraints().pathLength() == null
+                        ? "n/a" : exts.basicConstraints().pathLength().toString());
+        var ku = exts.keyUsage();
+        java.util.List<String> kuBits = new java.util.ArrayList<>();
+        if (ku.digitalSignature()) kuBits.add("digitalSignature");
+        if (ku.nonRepudiation()) kuBits.add("nonRepudiation");
+        if (ku.keyEncipherment()) kuBits.add("keyEncipherment");
+        if (ku.dataEncipherment()) kuBits.add("dataEncipherment");
+        if (ku.keyAgreement()) kuBits.add("keyAgreement");
+        if (ku.keyCertSign()) kuBits.add("keyCertSign");
+        if (ku.cRLSign()) kuBits.add("cRLSign");
+        if (ku.encipherOnly()) kuBits.add("encipherOnly");
+        if (ku.decipherOnly()) kuBits.add("decipherOnly");
+        addRow(box, "Key Usage", String.join(", ", kuBits));
+        addRow(box, "EKU OIDs", String.join(", ", exts.extendedKeyUsageOids()));
+        addRow(box, "Subject Alternative Names", formatSans(exts.subjectAlternativeNames()));
+        addRow(box, "Issuer Alternative Names", formatSans(exts.issuerAlternativeNames()));
+        addRow(box, "Subject Key Identifier", String.valueOf(exts.subjectKeyIdentifier()));
+        addRow(box, "Authority Key Identifier", String.valueOf(exts.authorityKeyIdentifier()));
+        addRow(box, "Certificate Policy OIDs", String.join(", ", exts.certificatePolicyOids()));
+        addRow(box, "CRL Distribution Points", String.join(", ", exts.crlDistributionPointUris()));
+        addRow(box, "AIA OCSP", String.join(", ", exts.aiaOcspUris()));
+        addRow(box, "AIA CA Issuer", String.join(", ", exts.aiaCaIssuerUris()));
+        addRow(box, "Critical OIDs", String.join(", ", exts.criticalOids()));
+        addRow(box, "Non-Critical OIDs", String.join(", ", exts.nonCriticalOids()));
+        return box;
+    }
+
+    private static String formatSans(java.util.List<io.github.certtool.domain.certificate.SubjectAlternativeName> sans) {
+        if (sans.isEmpty()) return "(none)";
+        StringBuilder sb = new StringBuilder();
+        for (var san : sans) {
+            if (sb.length() > 0) sb.append("; ");
+            sb.append(typeName(san.generalNameType())).append('=').append(san.value());
+        }
+        return sb.toString();
+    }
+
+    private static String typeName(int type) {
+        return switch (type) {
+            case io.github.certtool.domain.certificate.SubjectAlternativeName.TYPE_RFC822_NAME -> "email";
+            case io.github.certtool.domain.certificate.SubjectAlternativeName.TYPE_DNS_NAME -> "DNS";
+            case io.github.certtool.domain.certificate.SubjectAlternativeName.TYPE_DIRECTORY_NAME -> "dirName";
+            case io.github.certtool.domain.certificate.SubjectAlternativeName.TYPE_URI -> "URI";
+            case io.github.certtool.domain.certificate.SubjectAlternativeName.TYPE_IP_ADDRESS -> "IP";
+            case io.github.certtool.domain.certificate.SubjectAlternativeName.TYPE_REGISTERED_ID -> "registeredID";
+            default -> "type" + type;
+        };
+    }
+
+    private static void addRow(VBox box, String label, String value) {
+        HBox row = new HBox(8);
+        Label l = new Label(label + ":");
+        l.setStyle("-fx-font-weight: bold;");
+        l.setMinWidth(220);
+        row.getChildren().addAll(l, new Label(value == null || value.isEmpty() ? "—" : value));
+        box.getChildren().add(row);
+    }
+
     private void updateInspectDetailTabs(TabPane tabs) {
         InspectedEntry currentEntry = composition.inspectVm().getCurrentEntry();
         int index = composition.inspectVm().getCurrentCertificateIndex();
@@ -415,6 +516,10 @@ public final class MainShellController {
         }
         Tab certificate = tabs.getTabs().get(1);
         certificate.setContent(new ScrollPane(buildCertificateContent(cert, index, chainSize)));
+        Tab chain = tabs.getTabs().get(2);
+        chain.setContent(new ScrollPane(buildChainContent(currentEntry)));
+        Tab extensions = tabs.getTabs().get(3);
+        extensions.setContent(new ScrollPane(buildExtensionsContent(cert)));
     }
 
     private Node buildComplianceView() {
