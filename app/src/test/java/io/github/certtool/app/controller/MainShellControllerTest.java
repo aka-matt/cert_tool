@@ -18,8 +18,10 @@ import io.github.certtool.domain.error.LoadFailure;
 import io.github.certtool.domain.error.LoadFailureReason;
 import io.github.certtool.domain.keystore.KeyStoreContainerType;
 import io.github.certtool.domain.load.KeyStoreLoadResult;
+import io.github.certtool.domain.load.LoadedEntry;
 import io.github.certtool.keystorecore.load.KeyStoreLoader;
 import io.github.certtool.keystorecore.password.FixedPasswordProvider;
+import io.github.certtool.testfixtures.CertificateGenerator;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
@@ -27,12 +29,25 @@ import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.AbstractExecutorService;
 import java.util.concurrent.TimeUnit;
+import javafx.application.Platform;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.slf4j.LoggerFactory;
 
 @DisplayName("MainShellController")
 class MainShellControllerTest {
+
+    @BeforeAll
+    static void initFx() {
+        // Inspect view construction instantiates JavaFX controls (TreeView, TabPane, ...);
+        // those need the FX toolkit to be initialised even for headless callers.
+        try {
+            Platform.startup(() -> { });
+        } catch (IllegalStateException ignored) {
+            // toolkit already started by another test class in the same JVM
+        }
+    }
 
     @Test
     @DisplayName("blank pasted Base64 does not submit a load task")
@@ -127,6 +142,24 @@ class MainShellControllerTest {
                 "c2VjcmV0", failure(LoadFailureReason.AMBIGUOUS_CONTAINER), Optional::<KeyStoreContainerType>empty);
 
         assertThat(executor.submittedTasks()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("buildInspectView returns a non-null Node once a keystore is loaded")
+    void buildInspectViewReturnsNode() throws Exception {
+        RecordingExecutor executor = new RecordingExecutor();
+        MainShellController controller = new MainShellController(composition(executor), null);
+        java.security.cert.X509Certificate cert = CertificateGenerator.selfSigned(
+                new javax.security.auth.x500.X500Principal("CN=build"),
+                CertificateGenerator.rsaKeyPair(2048),
+                "SHA256withRSA", java.time.Duration.ofDays(7));
+        controller.handlePastedLoadResult("secret", KeyStoreLoadResult.success(
+                KeyStoreContainerType.JKS, "SUN", "17",
+                List.of(LoadedEntry.trustedCertificate("alias-1", cert, new java.util.Date()))),
+                Optional::<KeyStoreContainerType>empty);
+
+        javafx.scene.Node view = controller.inspectView();
+        assertThat(view).isNotNull();
     }
 
     private static KeyStoreLoadResult failure(LoadFailureReason reason) {
