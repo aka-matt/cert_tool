@@ -151,6 +151,11 @@ public final class AppComposition {
         return new AutoDetectKeyStoreLoadTask(loader, bytes, activePasswordProvider);
     }
 
+    /** Builds an auto-detecting file load task using the active password provider. */
+    public AutoDetectKeyStoreLoadTask autoDetectLoadTask(java.nio.file.Path path) {
+        return new AutoDetectKeyStoreLoadTask(loader, path, activePasswordProvider);
+    }
+
     /** Builds an {@link AnalyzeKeyStoreTask} on demand via the configured factory. */
     public AnalyzeKeyStoreTask analyzeTask(KeyStoreLoadResult result, ContentEncoding encoding) {
         return analyzerFactory.apply(result, encoding);

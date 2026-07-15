@@ -12,8 +12,6 @@ import io.github.certtool.domain.keystore.ContentEncoding;
 import io.github.certtool.domain.keystore.KeyStoreContainerType;
 import io.github.certtool.domain.load.KeyStoreLoadResult;
 import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -681,15 +679,7 @@ public final class MainShellController {
             LOG.debug("Open KeyStore dialog cancelled by user.");
             return;
         }
-        Path path = java.nio.file.Paths.get(selected.getAbsolutePath()).toAbsolutePath();
-        byte[] bytes;
-        try {
-            bytes = Files.readAllBytes(path);
-        } catch (IOException e) {
-            statusMessage.setText("Read failed.");
-            return;
-        }
-        AutoDetectKeyStoreLoadTask task = composition.autoDetectLoadTask(bytes);
+        AutoDetectKeyStoreLoadTask task = composition.autoDetectLoadTask(selected.toPath());
         activateLoadTask(task);
         task.stateProperty().addListener((obs, oldS, newS) -> updateProgress(newS, task.getProgress()));
         task.messageProperty().addListener((obs, oldM, newM) -> {
@@ -705,8 +695,8 @@ public final class MainShellController {
             composition.inspectController().onLoadResult(result);
             composition.inspectController().applyInspection(null);
             AnalyzeKeyStoreTask analyze = composition.analyzeTask(result, ContentEncoding.BINARY);
-            submitAnalyzeTask(analyze, task, () -> setStatus("Analyzed " + path.getFileName()));
-            statusMessage.setText("Loaded: " + path.getFileName());
+            submitAnalyzeTask(analyze, task, () -> setStatus("Analyzed keystore or truststore."));
+            statusMessage.setText("Loaded keystore or truststore.");
         });
         task.setOnFailed(evt -> statusMessage.setText("Load failed."));
         composition.backgroundExecutor().submit(task);

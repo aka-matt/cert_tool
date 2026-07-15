@@ -42,6 +42,7 @@ import io.github.certtool.keystorecore.password.FixedPasswordProvider;
 import io.github.certtool.testfixtures.CertificateGenerator;
 import io.github.certtool.testfixtures.KeyStoreGenerator;
 import java.math.BigInteger;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.Date;
@@ -90,6 +91,29 @@ class MainShellControllerTest {
         task.run();
 
         assertThat(task.get().container()).isEqualTo(KeyStoreContainerType.BCFKS);
+    }
+
+    @Test
+    @DisplayName("selected-file task reads BCFKS truststore bytes during task execution")
+    void selectedFileTaskReadsBcfksTruststoreBytesDuringTaskExecution() throws Exception {
+        java.security.cert.X509Certificate certificate = CertificateGenerator.selfSigned(
+                new javax.security.auth.x500.X500Principal("CN=selected-file-trust"),
+                CertificateGenerator.rsaKeyPair(2048),
+                "SHA256withRSA",
+                java.time.Duration.ofDays(7));
+        char[] password = new char[0];
+        byte[] bytes = KeyStoreGenerator.toBytes(KeyStoreGenerator.bcfks(password, "trust", certificate), password);
+        Path store = Files.createTempFile("cert-tool-truststore", ".bcfks");
+        try {
+            Files.write(store, bytes);
+
+            var task = composition(new RecordingExecutor()).autoDetectLoadTask(store);
+            task.run();
+
+            assertThat(task.get().container()).isEqualTo(KeyStoreContainerType.BCFKS);
+        } finally {
+            Files.deleteIfExists(store);
+        }
     }
 
     @Test
