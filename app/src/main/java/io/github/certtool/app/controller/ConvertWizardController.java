@@ -1,6 +1,7 @@
 package io.github.certtool.app.controller;
 
 import io.github.certtool.app.task.ConvertPreflightTask;
+import io.github.certtool.app.view.ConvertView;
 import io.github.certtool.app.viewmodel.ConvertWizardViewModel;
 import io.github.certtool.app.viewmodel.ConvertWizardViewModel.WizardStep;
 import io.github.certtool.conversion.domain.plan.AliasConflictPolicy;
@@ -18,6 +19,7 @@ import java.util.Objects;
 import java.util.concurrent.ExecutorService;
 import java.util.function.BiFunction;
 import java.util.function.Consumer;
+import javafx.scene.Node;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -40,6 +42,7 @@ public final class ConvertWizardController {
     private final ConvertController convertController;
     private final ConvertWizardViewModel vm;
     private final ExecutorService executor;
+    private final Consumer<String> onStatusMessage;
 
     /** Lazy preflight-task factory (set in Task 4). */
     private BiFunction<ConversionPlan, Profile, ConvertPreflightTask> preflightTaskFactory =
@@ -61,9 +64,18 @@ public final class ConvertWizardController {
             ConvertController convertController,
             ConvertWizardViewModel vm,
             ExecutorService executor) {
+        this(convertController, vm, executor, s -> {});
+    }
+
+    public ConvertWizardController(
+            ConvertController convertController,
+            ConvertWizardViewModel vm,
+            ExecutorService executor,
+            Consumer<String> onStatusMessage) {
         this.convertController = Objects.requireNonNull(convertController, "convertController");
         this.vm = Objects.requireNonNull(vm, "vm");
         this.executor = Objects.requireNonNull(executor, "executor");
+        this.onStatusMessage = Objects.requireNonNull(onStatusMessage, "onStatusMessage");
         // Whenever any step-relevant property changes, recompute nextEnabled. The View layer
         // also calls recomputeNextEnabled() after user actions (file pick, password type, …).
         vm.sourceProperty().addListener((o, a, b) -> recomputeNextEnabled());
@@ -241,5 +253,43 @@ public final class ConvertWizardController {
     void setConvertTaskRunnerForTests(BiFunction<ConversionPlan, Profile,
             javafx.concurrent.Task<?>> runner) {
         this.convertTaskRunner = runner;
+    }
+
+    private ConvertView view;
+
+    /** One-shot view binding — call once after constructing the view (Task 11). */
+    public void setView(ConvertView view) {
+        if (this.view != null) {
+            throw new IllegalStateException("view already set");
+        }
+        this.view = Objects.requireNonNull(view, "view");
+    }
+
+    private ConvertView view() {
+        if (view == null) {
+            throw new IllegalStateException("view not wired — Task 11 must call setView()");
+        }
+        return view;
+    }
+
+    public void back() {
+        WizardStep cur = vm.getCurrentStep();
+        if (cur.ordinal() > 0) {
+            vm.setCurrentStep(WizardStep.values()[cur.ordinal() - 1]);
+            view().showStep(vm.getCurrentStep());
+        }
+    }
+
+    public void next() {
+        WizardStep cur = vm.getCurrentStep();
+        if (cur.ordinal() < WizardStep.values().length - 1) {
+            vm.setCurrentStep(WizardStep.values()[cur.ordinal() + 1]);
+            view().showStep(vm.getCurrentStep());
+        }
+    }
+
+    /** Called from the Convert step in the footer — Task 12 wires the actual conversion. */
+    public void runConvertCurrentSource() {
+        onStatusMessage.accept("Conversion started.");
     }
 }
