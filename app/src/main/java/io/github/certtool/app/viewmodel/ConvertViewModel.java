@@ -18,7 +18,7 @@ import javafx.collections.ObservableList;
  * {@link AliasConflictPolicy}/{@link OverwritePolicy}, and the last preflight + execution
  * reports so the wizard can show them on steps 4 and 5.
  */
-public final class ConvertViewModel {
+public class ConvertViewModel {
 
     private final ObjectProperty<LoadedKeyStoreInfo> source = new SimpleObjectProperty<>();
     private final StringProperty sourcePath = new SimpleStringProperty("");
