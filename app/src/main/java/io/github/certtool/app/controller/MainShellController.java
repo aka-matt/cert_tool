@@ -695,6 +695,7 @@ public final class MainShellController {
             }
             KeyStoreLoadResult result = task.getValue();
             composition.inspectController().onLoadResult(result);
+            recordLoadSource(ContentEncoding.BINARY, selected.toString());
             composition.inspectController().applyInspection(null);
             AnalyzeKeyStoreTask analyze = composition.analyzeTask(result, ContentEncoding.BINARY);
             submitAnalyzeTask(analyze, task, () -> setStatus("Analyzed keystore or truststore."));
@@ -738,6 +739,7 @@ public final class MainShellController {
             String input, KeyStoreLoadResult result, ContainerTypeSelector containerTypeSelector) {
         if (result != null && result.isSuccess()) {
             composition.inspectController().onLoadResult(result);
+            recordLoadSource(ContentEncoding.BASE64, null);
             composition.inspectController().applyInspection(null);
             AnalyzeKeyStoreTask analyze = composition.analyzeTask(result, ContentEncoding.BASE64);
             submitAnalyzeTask(analyze, currentLoadTask,
@@ -775,6 +777,7 @@ public final class MainShellController {
             KeyStoreLoadResult result = task.getValue();
             if (result != null && result.isSuccess()) {
                 composition.inspectController().onLoadResult(result);
+                recordLoadSource(ContentEncoding.BASE64, null);
                 composition.inspectController().applyInspection(null);
                 AnalyzeKeyStoreTask analyze = composition.analyzeTask(result, ContentEncoding.BASE64);
                 submitAnalyzeTask(analyze, task,
@@ -881,6 +884,12 @@ public final class MainShellController {
     @SuppressWarnings("unused")
     private static ContentEncoding touch() {
         return ContentEncoding.BINARY;
+    }
+
+    /** Records encoding + source path on the Inspect view-model after a successful load. */
+    void recordLoadSource(ContentEncoding encoding, String sourcePath) {
+        composition.inspectVm().setContentEncoding(encoding);
+        composition.inspectVm().setSourcePath(sourcePath);
     }
 
     /** No-op helper to keep the java.util.logging import alive for migration later. */
