@@ -16,6 +16,7 @@ import io.github.certtool.app.viewmodel.InspectViewModel;
 import io.github.certtool.app.viewmodel.RuntimeViewModel;
 import io.github.certtool.compliance.core.AssessmentEngine;
 import io.github.certtool.compliance.core.DefaultRules;
+import io.github.certtool.domain.assessment.AssessmentReport;
 import io.github.certtool.domain.certificate.BasicConstraintsInfo;
 import io.github.certtool.domain.certificate.CertificateAnalysis;
 import io.github.certtool.domain.certificate.ExtensionAnalysis;
@@ -55,7 +56,9 @@ import java.util.concurrent.TimeUnit;
 import javafx.application.Platform;
 import javafx.concurrent.Task;
 import javafx.scene.Node;
+import javafx.scene.control.Button;
 import javafx.scene.control.Label;
+import javafx.scene.control.TextArea;
 import javafx.scene.layout.VBox;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.DisplayName;
@@ -366,6 +369,38 @@ class MainShellControllerTest {
                 .anyMatch(t -> t.contains("BEGIN CERTIFICATE"));
     }
 
+    @Test
+    @DisplayName("complianceView returns a non-null Node containing the disclaimer TextArea, findings TableView, and Run/Export Buttons")
+    void complianceViewReturnsNode() throws Exception {
+        MainShellController controller = new MainShellController(
+                composition(new RecordingExecutor()), null);
+        Node view = controller.complianceView();
+        assertThat(view).isNotNull();
+        assertThat(findNode(view, TextArea.class)).isNotNull();
+        assertThat(findNode(view, javafx.scene.control.TableView.class)).isNotNull();
+        // "Run Assessment" / "Export Report…" are placed on Button controls, not Labels —
+        // use a Button lookup rather than findLabel.
+        assertThat(findButton(view, "Run Assessment")).isNotNull();
+        assertThat(findButton(view, "Export Report…")).isNotNull();
+    }
+
+    @Test
+    @DisplayName("onKeyStoreChanged clears any prior assessment report on the compliance VM")
+    void onKeyStoreChangedClearsReport() throws Exception {
+        AppComposition comp = composition(new RecordingExecutor());
+        comp.complianceController().onReportProduced(new AssessmentReport(
+                io.github.certtool.compliance.loader.DefaultProfiles.loadFips1403(),
+                java.time.Instant.parse("2026-07-15T00:00:00Z"),
+                java.util.List.of(new io.github.certtool.domain.assessment.AssessmentFinding(
+                        "R-1", "x", io.github.certtool.domain.assessment.AssessmentStatus.PASS,
+                        io.github.certtool.domain.assessment.Severity.INFO,
+                        "s", "e", "r", java.util.List.of()))));
+        MainShellController controller = new MainShellController(comp, null);
+        controller.onKeyStoreChanged();
+        assertThat(comp.complianceVm().getReport()).isNull();
+        assertThat(comp.complianceVm().filteredFindings()).isEmpty();
+    }
+
     private static InspectedKeyStore buildInspected(String alias, java.security.cert.X509Certificate cert) {
         ValidityWindow validity = new ValidityWindow(Instant.now(), Instant.now().plusSeconds(60));
         CertificateAnalysis analysis = new CertificateAnalysis(
@@ -433,6 +468,17 @@ class MainShellControllerTest {
         if (root instanceof javafx.scene.Parent p) {
             for (Node child : p.getChildrenUnmodifiable()) {
                 Label found = findLabel(child, text);
+                if (found != null) return found;
+            }
+        }
+        return null;
+    }
+
+    private static Button findButton(Node root, String text) {
+        if (root instanceof Button b && text.equals(b.getText())) return b;
+        if (root instanceof javafx.scene.Parent p) {
+            for (Node child : p.getChildrenUnmodifiable()) {
+                Button found = findButton(child, text);
                 if (found != null) return found;
             }
         }
