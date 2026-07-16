@@ -1,6 +1,7 @@
 package io.github.certtool.app.controller;
 
 import io.github.certtool.app.viewmodel.ComplianceViewModel;
+import io.github.certtool.domain.assessment.AssessmentFinding;
 import io.github.certtool.domain.assessment.AssessmentReport;
 import io.github.certtool.domain.profile.Profile;
 import java.util.Objects;
@@ -26,6 +27,14 @@ public final class ComplianceController {
 
     public void onReportProduced(AssessmentReport report) {
         viewModel.setReport(report);
+    }
+
+    public void onFindingSelected(AssessmentFinding finding) {
+        viewModel.setSelectedFinding(finding);
+    }
+
+    public void onKeyStoreChanged() {
+        viewModel.clearReport();
     }
 
     public void onFilterTextChanged(String text) {

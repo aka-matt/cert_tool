@@ -94,4 +94,31 @@ class ComplianceControllerTest {
         assertThat(counts.get(AssessmentStatus.PASS)).isEqualTo(1L);
         assertThat(counts.get(AssessmentStatus.FAIL)).isEqualTo(1L);
     }
+
+    @Test
+    @DisplayName("onFindingSelected updates the view-model's selectedFinding")
+    void onFindingSelected() throws Exception {
+        ComplianceViewModel vm = new ComplianceViewModel();
+        ComplianceController c = new ComplianceController(vm);
+        AssessmentReport r = sampleReport();
+        c.onReportProduced(r);
+        AssessmentFinding f = r.findings().get(1);
+
+        c.onFindingSelected(f);
+
+        assertThat(c.viewModel().getSelectedFinding()).isSameAs(f);
+    }
+
+    @Test
+    @DisplayName("onKeyStoreChanged clears the report and filtered findings")
+    void onKeyStoreChangedClears() throws Exception {
+        ComplianceViewModel vm = new ComplianceViewModel();
+        ComplianceController c = new ComplianceController(vm);
+        c.onReportProduced(sampleReport());
+
+        c.onKeyStoreChanged();
+
+        assertThat(c.viewModel().getReport()).isNull();
+        assertThat(c.viewModel().filteredFindings()).isEmpty();
+    }
 }
