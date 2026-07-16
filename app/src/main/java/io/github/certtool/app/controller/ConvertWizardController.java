@@ -37,9 +37,6 @@ public final class ConvertWizardController {
 
     private static final Logger LOG = LoggerFactory.getLogger(ConvertWizardController.class);
 
-    /** Default target store password: empty array — overridden in Task 8 once the user types. */
-    private static final char[] NO_TARGET_PASSWORD = new char[0];
-
     private final AtomicReference<char[]> targetPasswordRef =
             new AtomicReference<>(new char[0]);
 

@@ -5,6 +5,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import io.github.certtool.app.task.ConvertPreflightTask;
 import io.github.certtool.app.viewmodel.ConvertWizardViewModel;
+import io.github.certtool.conversion.domain.plan.AliasConflictPolicy;
+import io.github.certtool.conversion.domain.plan.OverwritePolicy;
 import io.github.certtool.app.viewmodel.ConvertWizardViewModel.WizardStep;
 import io.github.certtool.conversion.domain.preflight.PreflightFinding;
 import io.github.certtool.conversion.domain.preflight.PreflightReport;
@@ -76,7 +78,34 @@ class ConvertWizardControllerTest {
         vm.setTargetPath("");
         assertThat(wizard.isStepValid(WizardStep.TARGET)).isFalse();
         vm.setTargetPath("/tmp/target.bcfks");
+        // BCFKS requires a non-empty target password (set via the wizard's password setter).
+        wizard.setTargetStorePassword("changeit".toCharArray());
         // policies default to RENAME / FAIL_IF_EXISTS — already chosen
+        assertThat(wizard.isStepValid(WizardStep.TARGET)).isTrue();
+    }
+
+    @Test
+    void targetStepRejectsBcfksWithEmptyPassword() {
+        vm.setTargetPath("/tmp/target.bcfks");
+        vm.setAliasConflictPolicy(AliasConflictPolicy.RENAME);
+        vm.setOverwritePolicy(OverwritePolicy.FAIL_IF_EXISTS);
+        vm.setTargetContainerType(KeyStoreContainerType.BCFKS);
+        // no password set — empty char[] by default
+        assertThat(wizard.isStepValid(WizardStep.TARGET)).isFalse();
+        // BCFKS + non-empty password is valid
+        wizard.setTargetStorePassword("changeit".toCharArray());
+        assertThat(wizard.isStepValid(WizardStep.TARGET)).isTrue();
+    }
+
+    @Test
+    void targetStepAcceptsJksOrPkcs12WithoutPassword() {
+        vm.setTargetPath("/tmp/target.jks");
+        vm.setAliasConflictPolicy(AliasConflictPolicy.RENAME);
+        vm.setOverwritePolicy(OverwritePolicy.FAIL_IF_EXISTS);
+        vm.setTargetContainerType(KeyStoreContainerType.JKS);
+        // no password — JKS allows it
+        assertThat(wizard.isStepValid(WizardStep.TARGET)).isTrue();
+        vm.setTargetContainerType(KeyStoreContainerType.PKCS12);
         assertThat(wizard.isStepValid(WizardStep.TARGET)).isTrue();
     }
 
