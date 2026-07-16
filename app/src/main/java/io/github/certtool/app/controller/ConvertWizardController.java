@@ -15,6 +15,7 @@ import io.github.certtool.domain.keystore.KeyStoreContainerType;
 import io.github.certtool.domain.profile.Profile;
 import io.github.certtool.keystorecore.password.PasswordProvider;
 import io.github.certtool.keystorecore.password.StorePasswordRequest;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -319,6 +320,9 @@ public final class ConvertWizardController {
      * Empty array means "prompt per-entry at execution time".
      */
     public void setEntryPasswordOverride(char[] override) {
+        if (this.entryPasswordOverride != null) {
+            Arrays.fill(this.entryPasswordOverride, '\0');
+        }
         this.entryPasswordOverride = override == null ? new char[0] : override.clone();
     }
 
@@ -380,7 +384,7 @@ public final class ConvertWizardController {
                         : new char[0])
                 .toList();
         // Patch the plan with the real passwords.
-        var plan = buildConversionPlanWithPasswords(sourceStorePassword, entryPasswords);
+        var plan = buildConversionPlanWithPasswords(sourceStorePassword.clone(), entryPasswords);
         // Rest of conversion via the runner.
         runConvert(plan);
     }
