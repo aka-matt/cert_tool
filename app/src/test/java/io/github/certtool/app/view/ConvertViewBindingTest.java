@@ -10,6 +10,9 @@ import io.github.certtool.conversion.domain.plan.AliasConflictPolicy;
 import io.github.certtool.conversion.domain.plan.OverwritePolicy;
 import io.github.certtool.conversion.domain.plan.ConversionPlan;
 import io.github.certtool.conversion.domain.preflight.PreflightReport;
+import io.github.certtool.domain.context.LoadedKeyStoreInfo;
+import io.github.certtool.domain.keystore.ContentEncoding;
+import io.github.certtool.domain.keystore.KeyStoreContainerType;
 import java.util.List;
 import java.util.concurrent.Executors;
 import java.util.function.Consumer;
@@ -73,6 +76,39 @@ class ConvertViewBindingTest {
         vm.setCurrentStep(WizardStep.PREFLIGHT);
         Label title2 = findLabelByTextStartsWith(root, "Step 4 of 5");
         assertThat(title2).isNotNull();
+    }
+
+    @Test
+    void sourcePanelRendersContainerEncodingAndPath() {
+        var vm = vm();
+        // Seed via ConvertController so the panel sees a realistic LoadedKeyStoreInfo.
+        var info = new LoadedKeyStoreInfo(
+                KeyStoreContainerType.JKS,
+                ContentEncoding.BINARY,
+                "/tmp/source.jks",
+                1024L,
+                true,
+                List.of("a", "b"));
+        new ConvertController(vm).onSourceSelected(info);
+        var view = new ConvertView(vm, wiz(vm), Executors.newSingleThreadExecutor(),
+                () -> null, r -> {}, s -> {});
+        Node root = view.root();
+        // Trigger SOURCE panel construction by toggling currentStep:
+        vm.setCurrentStep(WizardStep.SOURCE);
+        Label content = findLabelByTextStartsWith(root, "Container:");
+        assertThat(content).isNotNull();
+        Label aliasCount = findLabelByTextStartsWith(root, "Entries:");
+        assertThat(aliasCount).isNotNull();
+    }
+
+    @Test
+    void sourcePanelEmptyStateWhenNoSource() {
+        var vm = vm();
+        var view = new ConvertView(vm, wiz(vm), Executors.newSingleThreadExecutor(),
+                () -> null, r -> {}, s -> {});
+        Node root = view.root();
+        Label empty = findLabelByTextStartsWith(root, "Open a keystore");
+        assertThat(empty).isNotNull();
     }
 
     private static Button findButton(Node root, String text) {

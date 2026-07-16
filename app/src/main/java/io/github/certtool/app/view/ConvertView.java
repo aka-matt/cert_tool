@@ -75,6 +75,7 @@ public final class ConvertView {
         root.setBottom(buildFooter());
         wireNavigation();
         bindStepTitle();
+        showStep(vm.getCurrentStep());
     }
 
     private Node buildStepListHeader() {
@@ -130,6 +131,10 @@ public final class ConvertView {
             convertButton.setVisible(isExecute);
             nextButton.setVisible(!isExecute);
             reRunPreflightButton.setVisible(isPreflight);
+            // Automatically show the panel for the new step.
+            if (newStep != null) {
+                showStep(newStep);
+            }
         });
     }
 
@@ -147,11 +152,62 @@ public final class ConvertView {
 
     /** Exposed for the controller to call when entering a step. */
     public void showStep(WizardStep step) {
-        Node panel = stepCache.get(step);
+        Node panel = switch (step) {
+            case SOURCE -> sourcePanel();
+            default -> stepCache.get(step); // Tasks 7–10 register themselves
+        };
         if (panel == null) {
             panel = buildCenterPlaceholder();
-            stepCache.put(step, panel);
         }
         root.setCenter(panel);
+    }
+
+    /** Public so the controller can request a re-render; first-call builds and caches. */
+    public Node sourcePanel() {
+        return stepCache.computeIfAbsent(WizardStep.SOURCE, step -> buildSourcePanel());
+    }
+
+    private Node buildSourcePanel() {
+        VBox box = new VBox(8);
+        box.setPadding(new Insets(16));
+        box.setId("convert-step-source");
+        // Subscribe to source + sourcePath changes to rebuild the labels when they change.
+        Label containerLabel = new Label();
+        Label encodingLabel = new Label();
+        Label pathLabel = new Label();
+        Label entryCountLabel = new Label();
+        Runnable refresh = () -> {
+            var src = vm.getSource();
+            if (src == null) {
+                containerLabel.setText("");
+                encodingLabel.setText("");
+                pathLabel.setText("");
+                entryCountLabel.setText("");
+                return;
+            }
+            containerLabel.setText("Container: " + src.containerType());
+            encodingLabel.setText("Encoding: " + src.encoding());
+            pathLabel.setText("Source path: " + (src.sourcePath() != null ? src.sourcePath() : "(in-memory)"));
+            entryCountLabel.setText("Entries: " + vm.sourceAliases().size());
+        };
+        refresh.run();
+        vm.sourceProperty().addListener((o, a, b) -> refresh.run());
+        vm.sourceAliases().addListener((javafx.collections.ListChangeListener<String>) c -> refresh.run());
+
+        box.getChildren().addAll(
+                new Label("Step 1 — Source"),
+                new Label("Loaded keystore summary:"),
+                containerLabel, encodingLabel, pathLabel, entryCountLabel);
+        // Empty-state line, hidden when source is non-null:
+        Label empty = new Label("Open a keystore on the Inspect tab to populate this wizard.");
+        empty.setId("convert-step-source-empty");
+        empty.visibleProperty().bind(javafx.beans.binding.Bindings.createBooleanBinding(
+                () -> vm.getSource() == null, vm.sourceProperty()));
+        empty.managedProperty().bind(empty.visibleProperty());
+        box.getChildren().add(empty);
+
+        // Register the panel for showStep() to swap it in:
+        registerStep(WizardStep.SOURCE, box);
+        return box;
     }
 }
