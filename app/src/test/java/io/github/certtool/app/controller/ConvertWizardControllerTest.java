@@ -220,7 +220,8 @@ class ConvertWizardControllerTest {
             Thread.sleep(200);
         } catch (InterruptedException ignored) {}
         // handleEnteredPreflight pulls Throwable from the task and calls onPreflightFailed.
-        assertThat(errors.get()).contains("simulated");
+        // Per CLAUDE.md §2 rule 10, the message is redacted — class name is preserved.
+        assertThat(errors.get()).isEqualTo("RuntimeException (message redacted for security)");
     }
 
     private static void runOnFxThreadAndWait(Runnable action) throws Exception {
