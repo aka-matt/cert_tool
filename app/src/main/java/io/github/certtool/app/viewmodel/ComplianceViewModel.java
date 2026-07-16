@@ -32,6 +32,7 @@ public final class ComplianceViewModel {
     private final ObjectProperty<Severity> minSeverityFilter = new SimpleObjectProperty<>(Severity.INFO);
     private final ObservableList<AssessmentFinding> filteredFindings = FXCollections.observableArrayList();
     private final ObservableList<Profile> availableProfiles = FXCollections.observableArrayList();
+    private final ObjectProperty<AssessmentFinding> selectedFinding = new SimpleObjectProperty<>();
 
     public ComplianceViewModel() throws IOException {
         availableProfiles.addAll(DefaultProfiles.all());
@@ -46,6 +47,16 @@ public final class ComplianceViewModel {
     public AssessmentReport getReport() { return report.get(); }
     public void setReport(AssessmentReport r) {
         report.set(r);
+        rebuildFiltered();
+    }
+
+    public ObjectProperty<AssessmentFinding> selectedFindingProperty() { return selectedFinding; }
+    public AssessmentFinding getSelectedFinding() { return selectedFinding.get(); }
+    public void setSelectedFinding(AssessmentFinding f) { selectedFinding.set(f); }
+
+    public void clearReport() {
+        selectedFinding.set(null);
+        report.set(null);
         rebuildFiltered();
     }
 
