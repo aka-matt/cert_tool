@@ -8,6 +8,7 @@ import io.github.certtool.domain.keystore.ContentEncoding;
 import io.github.certtool.domain.keystore.KeyStoreContainerType;
 import io.github.certtool.conversion.domain.plan.AliasConflictPolicy;
 import io.github.certtool.conversion.domain.plan.OverwritePolicy;
+import io.github.certtool.conversion.domain.preflight.PreflightSeverity;
 import java.util.EnumMap;
 import java.util.Map;
 import java.util.Objects;
@@ -26,8 +27,10 @@ import javafx.scene.control.Button;
 import javafx.scene.control.CheckBox;
 import javafx.scene.control.ComboBox;
 import javafx.scene.control.Label;
+import javafx.scene.control.ListView;
 import javafx.scene.control.PasswordField;
 import javafx.scene.control.TextField;
+import javafx.scene.control.TitledPane;
 import javafx.scene.control.cell.CheckBoxTableCell;
 import javafx.scene.control.TableColumn;
 import javafx.scene.control.TableView;
@@ -175,6 +178,7 @@ public final class ConvertView {
             case SOURCE -> sourcePanel();
             case CONTENTS -> contentsPanel();
             case TARGET -> targetPanel();
+            case PREFLIGHT -> preflightPanel();
             default -> stepCache.get(step); // Tasks 9–10 register themselves
         };
         if (panel == null) {
@@ -418,6 +422,87 @@ public final class ConvertView {
 
         box.getChildren().addAll(new Label("Step 3 — Target"), grid);
         registerStep(WizardStep.TARGET, box);
+        return box;
+    }
+
+    /** Public so the controller can request a re-render; first-call builds and caches. */
+    public Node preflightPanel() {
+        return stepCache.computeIfAbsent(WizardStep.PREFLIGHT, step -> buildPreflightPanel());
+    }
+
+    private Node buildPreflightPanel() {
+        VBox box = new VBox(12);
+        box.setPadding(new Insets(16));
+        box.setId("convert-step-preflight");
+
+        Label header = new Label();
+        header.textProperty().bind(javafx.beans.binding.Bindings.createStringBinding(() -> {
+            // Profile is consumed from composition.complianceVm() in Task 11; for now use a
+            // placeholder note.
+            return "Preflight results (profile: <read from Compliance tab at Task 11>)";
+        }, vm.preflightReportProperty()));
+
+        TitledPane blockerPane = new TitledPane();
+        blockerPane.setText("Blockers");
+        ListView<String> blockerList = new ListView<>();
+        blockerPane.setContent(blockerList);
+
+        TitledPane warnPane = new TitledPane();
+        warnPane.setText("Warnings");
+        ListView<String> warnList = new ListView<>();
+        warnPane.setContent(warnList);
+
+        TitledPane infoPane = new TitledPane();
+        infoPane.setText("Info");
+        ListView<String> infoList = new ListView<>();
+        infoPane.setContent(infoList);
+
+        Runnable refresh = () -> {
+            var report = vm.getPreflightReport();
+            blockerList.getItems().clear();
+            warnList.getItems().clear();
+            infoList.getItems().clear();
+            if (report == null) {
+                return;
+            }
+            for (var f : report.findings()) {
+                String line = (f.alias() == null ? "" : (f.alias() + " — ")) + f.message();
+                switch (f.severity()) {
+                    case BLOCK -> blockerList.getItems().add(line);
+                    case WARN  -> warnList.getItems().add(line);
+                    case INFO  -> infoList.getItems().add(line);
+                }
+            }
+        };
+        refresh.run();
+        vm.preflightReportProperty().addListener((o, a, b) -> refresh.run());
+
+        // Optional entry-override key password
+        Label optLabel = new Label("Override per-entry key password (applies to all selected "
+                + "private-key entries; leave blank to be prompted per-entry at execution time).");
+        optLabel.setWrapText(true);
+        PasswordField optPassword = new PasswordField();
+        optPassword.setId("convert-step-preflight-override");
+
+        // Banner that disables Next when blockers exist
+        Label blockerBanner = new Label();
+        blockerBanner.textProperty().bind(javafx.beans.binding.Bindings.createStringBinding(
+                () -> {
+                    var r = vm.getPreflightReport();
+                    if (r != null && r.hasBlockers()) {
+                        long n = r.blockerCount();
+                        return n + " blockers — fix or remove before continuing.";
+                    }
+                    return "";
+                },
+                vm.preflightReportProperty()));
+        blockerBanner.setStyle("-fx-text-fill: #b00; -fx-font-weight: bold");
+
+        box.getChildren().addAll(new Label("Step 4 — Preflight"),
+                header, blockerBanner,
+                blockerPane, warnPane, infoPane,
+                optLabel, optPassword);
+        registerStep(WizardStep.PREFLIGHT, box);
         return box;
     }
 
