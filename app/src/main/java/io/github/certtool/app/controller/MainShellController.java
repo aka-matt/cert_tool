@@ -14,11 +14,13 @@ import io.github.certtool.domain.assessment.AssessmentFinding;
 import io.github.certtool.domain.assessment.AssessmentReport;
 import io.github.certtool.domain.assessment.AssessmentStatus;
 import io.github.certtool.domain.assessment.Severity;
+import io.github.certtool.domain.context.LoadedKeyStoreInfo;
 import io.github.certtool.domain.context.RuleContext;
 import io.github.certtool.domain.inspect.InspectedCertificate;
 import io.github.certtool.domain.inspect.InspectedEntry;
 import io.github.certtool.domain.inspect.InspectedKeyStore;
 import io.github.certtool.domain.keystore.ContentEncoding;
+import io.github.certtool.domain.keystore.EntryType;
 import io.github.certtool.domain.keystore.KeyStoreContainerType;
 import io.github.certtool.domain.load.KeyStoreLoadResult;
 import io.github.certtool.domain.profile.Profile;
@@ -30,6 +32,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
+import java.util.function.Supplier;
 import javafx.concurrent.Task;
 import javafx.concurrent.Worker;
 import javafx.geometry.Insets;
@@ -804,42 +808,15 @@ public final class MainShellController {
 
     private Node buildConvertView() {
         if (convertViewNode == null) {
-            // Always reach through composition for the wizard VM/controller.
-            // First-access may happen before composition is fully built in tests — guard.
-            final ConvertWizardViewModel fromCompVm = composition.convertWizardVm();
-            final ConvertWizardController fromCompWizard = composition.convertWizardController();
-
-            if (fromCompVm == null && fromCompWizard == null) {
-                // Both null — test composition doesn't supply them; build locally.
-                convertWizardVm = new ConvertWizardViewModel();
-                convertWizardController = new ConvertWizardController(
-                        composition.convertController(),
-                        convertWizardVm,
-                        composition.backgroundExecutor(),
-                        result -> setStatus("Converted " + result.targetPath()),
-                        this::setStatus);
-            } else if (fromCompVm != null && fromCompWizard != null) {
-                // Both provided — use composition instances.
-                convertWizardVm = fromCompVm;
-                convertWizardController = fromCompWizard;
-            } else {
-                // Mixed — only one supplied. Recover by building the missing piece locally,
-                // using whatever the composition already provided.
-                if (fromCompVm == null) {
-                    convertWizardVm = new ConvertWizardViewModel();
-                }
-                if (fromCompWizard == null) {
-                    convertWizardController = new ConvertWizardController(
-                            composition.convertController(),
-                            convertWizardVm,
-                            composition.backgroundExecutor(),
-                            result -> setStatus("Converted " + result.targetPath()),
-                            this::setStatus);
-                }
-            }
+            convertWizardVm = composition.convertWizardVm();
+            convertWizardController = composition.convertWizardController();
+            Supplier<Runnable> preflightRunner = () -> () ->
+                    convertWizardController.handleEnteredPreflight(
+                            selectedSourceEntries(),
+                            composition.complianceVm().getSelectedProfile());
             var view = new ConvertView(convertWizardVm, convertWizardController,
                     composition.backgroundExecutor(),
-                    () -> null,
+                    preflightRunner,
                     result -> {
                         convertWizardVm.setLastResult(result);
                         setStatus("Converted " + result.targetPath());
@@ -849,6 +826,18 @@ public final class MainShellController {
             convertViewNode = view.root();
         }
         return convertViewNode;
+    }
+
+    private Map<String, EntryType> selectedSourceEntries() {
+        Set<String> selectedAliases = Set.copyOf(composition.convertWizardVm().selectedAliases());
+        Map<String, EntryType> sourceEntries = new LinkedHashMap<>();
+        KeyStoreLoadResult loadResult = composition.inspectVm().getLoadResult();
+        if (loadResult != null && loadResult.isSuccess()) {
+            loadResult.entries().stream()
+                    .filter(entry -> selectedAliases.contains(entry.alias()))
+                    .forEach(entry -> sourceEntries.put(entry.alias(), entry.entryType()));
+        }
+        return sourceEntries;
     }
 
     private Node buildRuntimeView() {
@@ -1158,17 +1147,25 @@ public final class MainShellController {
         composition.backgroundExecutor().submit(task);
     }
 
-    /** Notifies the compliance view that a new keystore has been loaded. */
+    /** Notifies compliance and Convert that a new keystore has been loaded. */
     void onKeyStoreChanged() {
         composition.complianceController().onKeyStoreChanged();
-        // Use the composition's controller if available (production + upgraded test composition);
-        // fall back to the locally-constructed one only when buildConvertView() built it directly.
-        var wizard = composition.convertWizardController();
-        if (wizard != null) {
-            wizard.resetOnSourceChange();
-        } else if (convertWizardController != null) {
-            convertWizardController.resetOnSourceChange();
+
+        InspectViewModel inspectVm = composition.inspectVm();
+        KeyStoreLoadResult loadResult = inspectVm.getLoadResult();
+        ContentEncoding encoding = inspectVm.getContentEncoding();
+        if (loadResult != null && loadResult.isSuccess() && encoding != null) {
+            LoadedKeyStoreInfo info = new LoadedKeyStoreInfo(
+                    loadResult.container(),
+                    encoding,
+                    nullIfEmpty(inspectVm.getSourcePath()),
+                    0L,
+                    true,
+                    loadResult.entries().stream().map(entry -> entry.alias()).toList());
+            composition.convertController().onSourceSelected(info);
         }
+
+        composition.convertWizardController().resetOnSourceChange();
     }
 
     private static ExportReportTask.Format inferFormat(File chosen, FileChooser.ExtensionFilter filter) {

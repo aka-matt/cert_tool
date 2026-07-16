@@ -9,6 +9,7 @@ import io.github.certtool.app.settings.SettingsService;
 import io.github.certtool.app.task.AssessmentTask;
 import io.github.certtool.app.task.AnalyzeKeyStoreTask;
 import io.github.certtool.app.task.AutoDetectKeyStoreLoadTask;
+import io.github.certtool.app.task.ConvertPreflightTask;
 import io.github.certtool.app.task.ConvertTask;
 import io.github.certtool.app.task.ExportReportTask;
 import io.github.certtool.app.task.LoadKeyStoreTask;
@@ -24,8 +25,10 @@ import io.github.certtool.app.viewmodel.RuntimeViewModel;
 import io.github.certtool.compliance.core.AssessmentEngine;
 import io.github.certtool.compliance.core.DefaultRules;
 import io.github.certtool.compliance.core.RuleRegistry;
+import io.github.certtool.conversion.domain.plan.ConversionPlan;
 import io.github.certtool.domain.context.RuleContext;
 import io.github.certtool.domain.keystore.ContentEncoding;
+import io.github.certtool.domain.keystore.EntryType;
 import io.github.certtool.domain.keystore.KeyStoreContainerType;
 import io.github.certtool.domain.load.KeyStoreLoadResult;
 import io.github.certtool.domain.profile.Profile;
@@ -35,7 +38,10 @@ import io.github.certtool.reporting.ReportEnvelope;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Path;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.function.Supplier;
@@ -133,7 +139,7 @@ public final class AppComposition {
                 result -> { /* status set by view */ },
                 msg -> { /* status set by view */ });
 
-        return new Builder()
+        AppComposition composition = new Builder()
                 .settingsService(settings)
                 .themeService(theme)
                 .passwordProviderSource(() -> new io.github.certtool.keystorecore.password.FixedPasswordProvider(
@@ -154,11 +160,16 @@ public final class AppComposition {
                 .convertWizardVm(convertWizardVm)
                 .convertWizardController(convertWizardController)
                 .build();
+        convertWizardController.setPreflightTaskFactory(composition::convertPreflightTask);
+        convertWizardController.setConvertTaskRunner(composition::convertTask);
+        return composition;
     }
 
     /** Replaces the password provider after the FX stage is showing. */
     public void setPasswordProvider(PasswordProvider provider) {
-        this.activePasswordProvider = Objects.requireNonNull(provider, "provider");
+        PasswordProvider active = Objects.requireNonNull(provider, "provider");
+        this.activePasswordProvider = active;
+        convertWizardController.setPasswordProvider(active);
     }
 
     /** Builds a {@link LoadKeyStoreTask} on demand using the active password provider. */
@@ -196,8 +207,22 @@ public final class AppComposition {
         return new AssessmentTask(assessmentEngine, ctx, profile, ruleRegistry);
     }
 
+    /** Builds a fresh {@link ConvertPreflightTask} from the current loaded entry metadata. */
+    private ConvertPreflightTask convertPreflightTask(ConversionPlan plan, Profile profile) {
+        Objects.requireNonNull(plan, "plan");
+        Set<String> includedAliases = Set.copyOf(plan.includedAliases());
+        Map<String, EntryType> sourceEntries = new LinkedHashMap<>();
+        KeyStoreLoadResult loadResult = inspectVm.getLoadResult();
+        if (loadResult != null && loadResult.isSuccess()) {
+            loadResult.entries().stream()
+                    .filter(entry -> includedAliases.contains(entry.alias()))
+                    .forEach(entry -> sourceEntries.put(entry.alias(), entry.entryType()));
+        }
+        return new ConvertPreflightTask(plan, sourceEntries, profile);
+    }
+
     /** Builds a {@link ConvertTask}. */
-    public ConvertTask convertTask(io.github.certtool.conversion.domain.plan.ConversionPlan plan, Profile profile) {
+    public ConvertTask convertTask(ConversionPlan plan, Profile profile) {
         return new ConvertTask(plan, profile, activePasswordProvider);
     }
 

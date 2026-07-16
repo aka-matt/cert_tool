@@ -315,10 +315,10 @@ public final class ConvertWizardController {
         executor.submit(task);
     }
 
-    /** Test seam: assign the convert task runner. Production wires this in Task 12. */
-    void setConvertTaskRunnerForTests(BiFunction<ConversionPlan, Profile,
-            javafx.concurrent.Task<?>> runner) {
-        this.convertTaskRunner = runner;
+    /** Assigns the convert task runner used by production and tests. */
+    public void setConvertTaskRunner(
+            BiFunction<ConversionPlan, Profile, javafx.concurrent.Task<?>> runner) {
+        this.convertTaskRunner = Objects.requireNonNull(runner, "runner");
     }
 
     /**

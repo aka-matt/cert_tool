@@ -152,10 +152,15 @@ public final class ConvertView {
 
     private void wireNavigation() {
         backButton.setOnAction(e -> wizard.back());
-        nextButton.setOnAction(e -> wizard.next());
+        nextButton.setOnAction(e -> {
+            if (vm.getCurrentStep() == WizardStep.TARGET) {
+                runPreflight();
+            }
+            wizard.next();
+        });
         convertButton.setOnAction(e -> wizard.runConvertCurrentSource());
         closeButton.setOnAction(e -> onStatusMessage.accept("Convert wizard closed."));
-        reRunPreflightButton.setOnAction(e -> preflightRunner.get());
+        reRunPreflightButton.setOnAction(e -> runPreflight());
 
         vm.currentStepProperty().addListener((o, oldStep, newStep) -> {
             boolean isExecute = newStep == WizardStep.EXECUTE;
@@ -168,6 +173,13 @@ public final class ConvertView {
                 showStep(newStep);
             }
         });
+    }
+
+    private void runPreflight() {
+        Runnable action = preflightRunner.get();
+        if (action != null) {
+            action.run();
+        }
     }
 
     private void bindStepTitle() {
