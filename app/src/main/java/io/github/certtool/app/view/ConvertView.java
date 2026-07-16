@@ -179,6 +179,7 @@ public final class ConvertView {
             case CONTENTS -> contentsPanel();
             case TARGET -> targetPanel();
             case PREFLIGHT -> preflightPanel();
+            case EXECUTE -> executePanel();
             default -> stepCache.get(step); // Tasks 9–10 register themselves
         };
         if (panel == null) {
@@ -483,6 +484,8 @@ public final class ConvertView {
         optLabel.setWrapText(true);
         PasswordField optPassword = new PasswordField();
         optPassword.setId("convert-step-preflight-override");
+        optPassword.textProperty().addListener((o, a, b) ->
+                wizard.setEntryPasswordOverride(optPassword.getText().toCharArray()));
 
         // Banner that disables Next when blockers exist
         Label blockerBanner = new Label();
@@ -504,6 +507,96 @@ public final class ConvertView {
                 optLabel, optPassword);
         registerStep(WizardStep.PREFLIGHT, box);
         return box;
+    }
+
+    /** Public so the controller can request a re-render; first-call builds and caches. */
+    public Node executePanel() {
+        return stepCache.computeIfAbsent(WizardStep.EXECUTE, step -> buildExecutePanel());
+    }
+
+    private Node buildExecutePanel() {
+        VBox summaryBox = new VBox(8);
+        summaryBox.setPadding(new Insets(16));
+        summaryBox.setId("convert-step-execute");
+
+        Label header = new Label("Step 5 — Execute and verify");
+        Label summaryLabel = new Label();
+        summaryLabel.textProperty().bind(javafx.beans.binding.Bindings.createStringBinding(() -> {
+            StringBuilder sb = new StringBuilder("Final plan summary:\n");
+            sb.append("  Target: ").append(vm.getTargetPath()).append("\n");
+            sb.append("  Container: ").append(vm.getTargetContainerType()).append("\n");
+            sb.append("  Encoding: ").append(vm.getTargetEncoding()).append("\n");
+            sb.append("  Selected entries: ").append(vm.selectedAliases().size());
+            return sb.toString();
+        }, vm.targetPathProperty(), vm.targetContainerTypeProperty(),
+                vm.targetEncodingProperty(), vm.selectedAliases()));
+
+        // Success / failure panels (lazy):
+        VBox successPanel = new VBox(8);
+        successPanel.setId("convert-step-execute-success");
+        successPanel.visibleProperty().bind(javafx.beans.binding.Bindings.createBooleanBinding(
+                () -> vm.getLastResult() != null, vm.lastResultProperty()));
+        successPanel.managedProperty().bind(successPanel.visibleProperty());
+
+        Label successHeader = new Label();
+        successHeader.textProperty().bind(javafx.beans.binding.Bindings.createStringBinding(() -> {
+            var r = vm.getLastResult();
+            if (r == null) return "";
+            return "Conversion succeeded — " + r.writtenBytes() + " bytes written to "
+                    + r.targetPath();
+        }, vm.lastResultProperty()));
+
+        Label verificationLabel = new Label();
+        verificationLabel.textProperty().bind(javafx.beans.binding.Bindings.createStringBinding(() -> {
+            var r = vm.getLastResult();
+            if (r == null) return "";
+            var v = r.verification();
+            StringBuilder sb = new StringBuilder("Verification:\n");
+            sb.append("  Source aliases vs target aliases: ")
+              .append(v.sourceAliasCount()).append(" → ").append(v.targetAliasCount()).append("\n");
+            sb.append("  Source certificates vs target certificates: ")
+              .append(v.sourceCertificateCount()).append(" → ").append(v.targetCertificateCount()).append("\n");
+            sb.append("  Fingerprint match: ")
+              .append(v.fingerprintsMatch() ? "Yes" : "No");
+            return sb.toString();
+        }, vm.lastResultProperty()));
+
+        Button openFolder = new Button("Open containing folder");
+        openFolder.setOnAction(e -> openContainingFolder(vm.getLastResult() == null ? null
+                : java.nio.file.Path.of(vm.getLastResult().targetPath()).getParent()));
+        Button copyPath = new Button("Copy path");
+        copyPath.setOnAction(e -> {
+            var r = vm.getLastResult();
+            if (r != null) {
+                var content = new javafx.scene.input.ClipboardContent();
+                content.putString(r.targetPath());
+                javafx.scene.input.Clipboard.getSystemClipboard().setContent(content);
+            }
+        });
+
+        Button runCompliance = new Button("Run Compliance assessment on the new target");
+        runCompliance.setOnAction(e -> runComplianceOnTarget());
+
+        successPanel.getChildren().addAll(successHeader, verificationLabel,
+                new HBox(8, openFolder, copyPath), runCompliance);
+
+        summaryBox.getChildren().addAll(header, summaryLabel, successPanel);
+        registerStep(WizardStep.EXECUTE, summaryBox);
+        return summaryBox;
+    }
+
+    private void openContainingFolder(java.nio.file.Path folder) {
+        if (folder == null) return;
+        try {
+            java.awt.Desktop.getDesktop().open(folder.toFile());
+        } catch (Exception ex) {
+            onStatusMessage.accept("Could not open folder: " + ex.getMessage());
+        }
+    }
+
+    private void runComplianceOnTarget() {
+        // Wired in Task 11 via composition helper.
+        onStatusMessage.accept("Run Compliance on new target — wired in Task 11.");
     }
 
     private String suggestTargetFilename(String currentPath) {

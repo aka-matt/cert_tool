@@ -7,12 +7,14 @@ import io.github.certtool.app.viewmodel.ConvertWizardViewModel.WizardStep;
 import io.github.certtool.conversion.domain.plan.AliasConflictPolicy;
 import io.github.certtool.conversion.domain.plan.ConversionPlan;
 import io.github.certtool.conversion.domain.plan.OverwritePolicy;
+import io.github.certtool.conversion.domain.result.ConversionResult;
 import io.github.certtool.conversion.domain.preflight.PreflightReport;
 import io.github.certtool.domain.keystore.ContentEncoding;
 import io.github.certtool.domain.keystore.EntryType;
 import io.github.certtool.domain.keystore.KeyStoreContainerType;
 import io.github.certtool.domain.profile.Profile;
 import io.github.certtool.keystorecore.password.PasswordProvider;
+import io.github.certtool.keystorecore.password.StorePasswordRequest;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -44,6 +46,9 @@ public final class ConvertWizardController {
     private final ConvertWizardViewModel vm;
     private final ExecutorService executor;
     private final Consumer<String> onStatusMessage;
+    private final Consumer<ConversionResult> onConvertSucceeded;
+    private PasswordProvider passwordProvider;
+    private char[] entryPasswordOverride = new char[0];
 
     /** Lazy preflight-task factory (set in Task 4). */
     private BiFunction<ConversionPlan, Profile, ConvertPreflightTask> preflightTaskFactory =
@@ -65,7 +70,7 @@ public final class ConvertWizardController {
             ConvertController convertController,
             ConvertWizardViewModel vm,
             ExecutorService executor) {
-        this(convertController, vm, executor, s -> {});
+        this(convertController, vm, executor, r -> {}, s -> {});
     }
 
     public ConvertWizardController(
@@ -73,9 +78,19 @@ public final class ConvertWizardController {
             ConvertWizardViewModel vm,
             ExecutorService executor,
             Consumer<String> onStatusMessage) {
+        this(convertController, vm, executor, r -> {}, onStatusMessage);
+    }
+
+    public ConvertWizardController(
+            ConvertController convertController,
+            ConvertWizardViewModel vm,
+            ExecutorService executor,
+            Consumer<ConversionResult> onConvertSucceeded,
+            Consumer<String> onStatusMessage) {
         this.convertController = Objects.requireNonNull(convertController, "convertController");
         this.vm = Objects.requireNonNull(vm, "vm");
         this.executor = Objects.requireNonNull(executor, "executor");
+        this.onConvertSucceeded = Objects.requireNonNull(onConvertSucceeded, "onConvertSucceeded");
         this.onStatusMessage = Objects.requireNonNull(onStatusMessage, "onStatusMessage");
         // Whenever any step-relevant property changes, recompute nextEnabled. The View layer
         // also calls recomputeNextEnabled() after user actions (file pick, password type, …).
@@ -249,9 +264,39 @@ public final class ConvertWizardController {
     /** Step 5 → convert. Submits the convert task. Task 12 wires the runner. */
     public void runConvert(Map<String, EntryType> sourceEntries, Profile profile,
                            PasswordProvider passwords) {
-        ConversionPlan plan = buildConversionPlan(sourceEntries, profile);
-        var task = convertTaskRunner.apply(plan, profile);
+        ConversionPlan plan;
+        try {
+            plan = buildConversionPlan(sourceEntries, profile);
+        } catch (RuntimeException pre) {
+            onStatusMessage.accept("Cannot build plan: " + pre.getMessage());
+            return;
+        }
+        if (vm.isRunningConvert()) {
+            return;
+        }
+        @SuppressWarnings({"unchecked", "rawtypes"})
+        javafx.concurrent.Task<ConversionResult> task =
+                (javafx.concurrent.Task) convertTaskRunner.apply(plan, profile);
         vm.setRunningConvert(true);
+        task.setOnSucceeded(e -> {
+            ConversionResult r = task.getValue();
+            vm.setLastResult(r);
+            vm.setRunningConvert(false);
+            onConvertSucceeded.accept(r);
+            recomputeNextEnabled();
+        });
+        task.setOnFailed(e -> {
+            vm.setRunningConvert(false);
+            onStatusMessage.accept("Conversion failed: "
+                    + (task.getException() == null ? "unknown"
+                            : task.getException().getClass().getSimpleName() + ": "
+                            + task.getException().getMessage()));
+            recomputeNextEnabled();
+        });
+        task.setOnCancelled(e -> {
+            vm.setRunningConvert(false);
+            recomputeNextEnabled();
+        });
         executor.submit(task);
     }
 
@@ -259,6 +304,22 @@ public final class ConvertWizardController {
     void setConvertTaskRunnerForTests(BiFunction<ConversionPlan, Profile,
             javafx.concurrent.Task<?>> runner) {
         this.convertTaskRunner = runner;
+    }
+
+    /**
+     * Stores the password provider for lazy lookup at execution time.
+     * Called by the composition root in Task 13.
+     */
+    public void setPasswordProvider(PasswordProvider provider) {
+        this.passwordProvider = provider;
+    }
+
+    /**
+     * Stores the per-entry key-password override from the preflight step's PasswordField.
+     * Empty array means "prompt per-entry at execution time".
+     */
+    public void setEntryPasswordOverride(char[] override) {
+        this.entryPasswordOverride = override == null ? new char[0] : override.clone();
     }
 
     private ConvertView view;
@@ -294,8 +355,85 @@ public final class ConvertWizardController {
         }
     }
 
-    /** Called from the Convert step in the footer — Task 12 wires the actual conversion. */
+    /** Called from the Convert step in the footer. Wires PasswordProvider + plan build. */
     public void runConvertCurrentSource() {
-        onStatusMessage.accept("Conversion started.");
+        if (passwordProvider == null) {
+            onStatusMessage.accept("Password provider not available — cannot run conversion.");
+            return;
+        }
+        // Lazily obtain source store password at execution time.
+        var srcDesc = vm.getSource() != null
+                ? vm.getSource().containerType() + " source"
+                : "source keystore";
+        char[] sourceStorePassword = passwordProvider.requestStorePassword(
+                new StorePasswordRequest(srcDesc, 1, 3));
+        if (sourceStorePassword == null) {
+            // User cancelled
+            onStatusMessage.accept("Conversion cancelled — source password not provided.");
+            return;
+        }
+        // Build per-entry password list: one entry per selected alias.
+        // If override is non-empty use it for all entries; otherwise let the engine prompt per-entry.
+        List<char[]> entryPasswords = vm.selectedAliases().stream()
+                .map(alias -> entryPasswordOverride.length > 0
+                        ? entryPasswordOverride.clone()
+                        : new char[0])
+                .toList();
+        // Patch the plan with the real passwords.
+        var plan = buildConversionPlanWithPasswords(sourceStorePassword, entryPasswords);
+        // Rest of conversion via the runner.
+        runConvert(plan);
+    }
+
+    private void runConvert(ConversionPlan plan) {
+        if (vm.isRunningConvert()) {
+            return;
+        }
+        @SuppressWarnings({"unchecked", "rawtypes"})
+        javafx.concurrent.Task<ConversionResult> task =
+                (javafx.concurrent.Task) convertTaskRunner.apply(plan, null);
+        vm.setRunningConvert(true);
+        task.setOnSucceeded(e -> {
+            ConversionResult r = task.getValue();
+            vm.setLastResult(r);
+            vm.setRunningConvert(false);
+            onConvertSucceeded.accept(r);
+            recomputeNextEnabled();
+        });
+        task.setOnFailed(e -> {
+            vm.setRunningConvert(false);
+            onStatusMessage.accept("Conversion failed: "
+                    + (task.getException() == null ? "unknown"
+                            : task.getException().getClass().getSimpleName() + ": "
+                            + task.getException().getMessage()));
+            recomputeNextEnabled();
+        });
+        task.setOnCancelled(e -> {
+            vm.setRunningConvert(false);
+            recomputeNextEnabled();
+        });
+        executor.submit(task);
+    }
+
+    /**
+     * Builds the ConversionPlan using real passwords obtained at execution time.
+     * Entry passwords are a parallel list with one entry per selected alias.
+     */
+    private ConversionPlan buildConversionPlanWithPasswords(
+            char[] sourceStorePassword, List<char[]> entryPasswords) {
+        List<String> included = List.copyOf(vm.selectedAliases());
+        return new ConversionPlan(
+                vm.getSource().containerType(),
+                vm.getSource().encoding(),
+                vm.getTargetContainerType(),
+                vm.getTargetEncoding(),
+                vm.getSourcePath(),
+                vm.getTargetPath(),
+                sourceStorePassword,
+                getTargetStorePassword(),
+                vm.getAliasConflictPolicy(),
+                vm.getOverwritePolicy(),
+                included,
+                entryPasswords);
     }
 }

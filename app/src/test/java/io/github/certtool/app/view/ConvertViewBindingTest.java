@@ -209,4 +209,17 @@ class ConvertViewBindingTest {
         Label optPwd = findLabelByTextStartsWith(root, "Override per-entry key password");
         assertThat(optPwd).isNotNull();
     }
+
+    @Test
+    void executePanelRendersSummaryAndConvertButton() {
+        var vm = vm();
+        var view = new ConvertView(vm, wiz(vm), Executors.newSingleThreadExecutor(),
+                () -> null, r -> {}, s -> {});
+        vm.setCurrentStep(WizardStep.EXECUTE);
+        Node root = view.root();
+        Button convert = findButton(root, "Convert");
+        assertThat(convert).isNotNull();
+        Label summary = findLabelByTextStartsWith(root, "Final plan summary");
+        assertThat(summary).isNotNull();
+    }
 }
