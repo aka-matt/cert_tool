@@ -99,6 +99,15 @@ public final class MainShellController {
     private volatile AnalyzeKeyStoreTask currentAnalyzeTask;
     private volatile AssessmentTask currentAssessTask;
     private volatile Button runAssessmentButton;
+    private volatile javafx.concurrent.Task<?> currentConvertTask;
+
+    /* package-private */ ConvertWizardViewModel wizardVmForTest() {
+        return convertWizardVm;
+    }
+
+    /* package-private */ ConvertWizardController wizardControllerForTest() {
+        return convertWizardController;
+    }
 
     public MainShellController(AppComposition composition, Stage stage) {
         this.composition = composition;

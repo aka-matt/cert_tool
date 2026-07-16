@@ -136,6 +136,11 @@ public final class ConvertView {
                 reRunPreflightButton, nextButton, convertButton);
         // Hide convertButton by default; enable only on EXECUTE step.
         convertButton.setVisible(false);
+        // Belt-and-braces re-entry guard: also disable while a convert is running.
+        convertButton.disableProperty().bind(
+                javafx.beans.binding.Bindings.createBooleanBinding(
+                        () -> vm.isRunningConvert(),
+                        vm.runningConvertProperty()));
         reRunPreflightButton.setVisible(false);
         return footer;
     }

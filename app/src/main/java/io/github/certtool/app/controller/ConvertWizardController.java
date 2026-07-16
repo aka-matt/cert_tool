@@ -67,6 +67,14 @@ public final class ConvertWizardController {
                 throw new IllegalStateException("convertTaskRunner not wired yet");
             };
 
+    /** Tracks the in-flight convert task for re-entry guard and test seam. */
+    private volatile javafx.concurrent.Task<?> currentTask;
+
+    /** Test seam: returns the currently-executing convert task, or null. */
+    public javafx.concurrent.Task<?> currentTaskForTest() {
+        return currentTask;
+    }
+
     public ConvertWizardController(
             ConvertController convertController,
             ConvertWizardViewModel vm,
@@ -279,7 +287,9 @@ public final class ConvertWizardController {
         javafx.concurrent.Task<ConversionResult> task =
                 (javafx.concurrent.Task) convertTaskRunner.apply(plan, profile);
         vm.setRunningConvert(true);
+        this.currentTask = task;
         task.setOnSucceeded(e -> {
+            if (currentTask == task) currentTask = null;
             ConversionResult r = task.getValue();
             vm.setLastResult(r);
             vm.setRunningConvert(false);
@@ -287,6 +297,7 @@ public final class ConvertWizardController {
             recomputeNextEnabled();
         });
         task.setOnFailed(e -> {
+            if (currentTask == task) currentTask = null;
             vm.setRunningConvert(false);
             onStatusMessage.accept("Conversion failed: "
                     + (task.getException() == null ? "unknown"
@@ -295,6 +306,7 @@ public final class ConvertWizardController {
             recomputeNextEnabled();
         });
         task.setOnCancelled(e -> {
+            if (currentTask == task) currentTask = null;
             vm.setRunningConvert(false);
             recomputeNextEnabled();
         });
@@ -397,7 +409,9 @@ public final class ConvertWizardController {
         javafx.concurrent.Task<ConversionResult> task =
                 (javafx.concurrent.Task) convertTaskRunner.apply(plan, null);
         vm.setRunningConvert(true);
+        this.currentTask = task;
         task.setOnSucceeded(e -> {
+            if (currentTask == task) currentTask = null;
             ConversionResult r = task.getValue();
             vm.setLastResult(r);
             vm.setRunningConvert(false);
@@ -405,6 +419,7 @@ public final class ConvertWizardController {
             recomputeNextEnabled();
         });
         task.setOnFailed(e -> {
+            if (currentTask == task) currentTask = null;
             vm.setRunningConvert(false);
             onStatusMessage.accept("Conversion failed: "
                     + (task.getException() == null ? "unknown"
@@ -413,6 +428,7 @@ public final class ConvertWizardController {
             recomputeNextEnabled();
         });
         task.setOnCancelled(e -> {
+            if (currentTask == task) currentTask = null;
             vm.setRunningConvert(false);
             recomputeNextEnabled();
         });

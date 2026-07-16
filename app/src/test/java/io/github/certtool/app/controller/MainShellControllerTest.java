@@ -13,6 +13,7 @@ import io.github.certtool.app.theme.ThemeMode;
 import io.github.certtool.app.theme.ThemeService;
 import io.github.certtool.app.viewmodel.ComplianceViewModel;
 import io.github.certtool.app.viewmodel.ConvertViewModel;
+import io.github.certtool.app.viewmodel.ConvertWizardViewModel;
 import io.github.certtool.app.viewmodel.InspectViewModel;
 import io.github.certtool.app.viewmodel.RuntimeViewModel;
 import io.github.certtool.compliance.core.AssessmentEngine;
@@ -621,6 +622,28 @@ class MainShellControllerTest {
         assertThat(controller.currentLoadTask()).isSameAs(loadB);
         assertThat(loadA.isCancelled()).isTrue();
         assertThat(analyzeA.isCancelled()).isTrue();
+    }
+
+    @Test
+    @DisplayName("convert button is disabled while a conversion is running")
+    void convertTaskReentryGuardDisablesConvertButtonWhileRunning() throws Exception {
+        RecordingExecutor executor = new RecordingExecutor();
+        AppComposition composition = composition(executor);
+        MainShellController controller = new MainShellController(composition, null);
+
+        // Trigger lazy init of the convert wizard (builds ConvertView + wires binding).
+        Node view = controller.convertView();
+        Button convert = findButton(view, "Convert");
+        assertThat(convert).isNotNull();
+        assertThat(convert.isDisabled()).isFalse();
+
+        // Simulate the VM reporting that a conversion is in-flight.
+        ConvertWizardViewModel vm = controller.wizardVmForTest();
+        runOnFxThreadAndWait(() -> vm.setRunningConvert(true));
+
+        // Re-find the button (binding target is stable by id) and confirm it is disabled.
+        Button convertNowRunning = findButton(view, "Convert");
+        assertThat(convertNowRunning.isDisabled()).isTrue();
     }
 
     private static void runOnFxThreadAndWait(Runnable action) throws Exception {
