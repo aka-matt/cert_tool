@@ -17,7 +17,7 @@ import javafx.concurrent.Task;
  * preflight check usable as a {@link javafx.concurrent.Task}, so the wizard can disable Next
  * while preflight runs and surface terminal-state exceptions via {@code setOnFailed}.
  */
-public final class ConvertPreflightTask extends Task<PreflightReport> {
+public class ConvertPreflightTask extends Task<PreflightReport> {
 
     private final ConversionPlan plan;
     private final Map<String, EntryType> sourceEntries;
