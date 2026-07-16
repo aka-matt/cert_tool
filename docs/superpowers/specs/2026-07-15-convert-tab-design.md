@@ -48,29 +48,37 @@ forms convertible"). The wizard is purely UI/state; the engine is unchanged.
 
 Tests mirror under `app/src/test/java/io/github/certtool/app/...`.
 
-### 3.2 New domain types — minimal
+### 3.2 New types — minimal, app-module
 
-* `WizardStep` lives in `app/viewmodel/ConvertWizardViewModel.java` (app module,
-  not domain — no business meaning outside the UI).
-* `Base64Options { int lineWidth; boolean wrapHeaders; }` lives in
-  `domain/plan/Base64Options.java` because at least two call sites (the wizard
-  and the engine's preflight/Binary-vs-Base64 re-encoding path) need to read it.
-* No `TargetFormat` type. The wizard uses the existing `KeyStoreContainerType`
-  + `ContentEncoding` pair inline; a value object would have only one caller.
+* `WizardStep` and `record Base64Options { int lineWidth; boolean wrapHeaders; }`
+  both live in `app/viewmodel/ConvertWizardViewModel.java` (app module — no
+  business meaning outside the UI; only one consumer). The engine's preflight
+  does not consult base64 layout — that responsibility lives in
+  `KeyStoreGenerator.toBytes`/`loadBytes`, which currently does not read
+  line width or PEM-style headers from any structured input. The wizard's
+  Base64 options will be honored in a follow-on Phase 5 ADR; for the first
+  cut, the wizard records them on the VM and persists them on `lastResult`
+  only for the user to review in the success card.
+* No new `domain` types. `TargetFormat` would have a single caller
+  (the wizard); the wizard uses the existing `KeyStoreContainerType` +
+  `ContentEncoding` pair inline. `WizardStep` is intentionally app-module so
+  it does not pollute `domain`.
 
 ### 3.3 Modified files
 
 * `app/.../controller/MainShellController.java` —
   * add `Node convertView()` package-private accessor (lazy-build via
     `buildConvertView()`, mirrors `complianceView()`),
-  * wire `composition.keyStoreVm().loadResult` success to
+  * wire `composition.inspectVm().loadResultProperty()` (success only) to
     `convertController.onSourceSelected(info)` and the new wizard's
     `resetOnSourceChange()`,
   * add Pattern B re-entry guard (`currentConvertTask`,
     `convertButton.setDisable(true/false)` mirroring `currentAssessTask`).
 * `app/.../AppComposition.java` — instantiate
   `ConvertWizardViewModel`/`ConvertWizardController`/`ConvertView`; expose
-  `convertVm()` and the wizard controller on the composition.
+  `convertWizardVm()` and a `convertWizardController()` accessor on the
+  composition. The existing `convertVm()` accessor is removed (or repointed
+  to `convertWizardVm`); the wizard IS the convert VM from this point on.
 * `app/.../controller/ConvertController.java` — unchanged; its `onSourceSelected`,
   `onPreflightProduced`, etc. are reused as-is.
 
@@ -117,20 +125,21 @@ public final class ConvertWizardViewModel extends ConvertViewModel {
 | SOURCE   | `getSource() != null` (always true when populated from Inspect). |
 | CONTENTS | `selectedAliases` is non-empty. |
 | TARGET   | target container chosen + encoding chosen + `targetPath` non-empty + (target store password entered OR target is a truststore with no private entries) + alias-conflict policy chosen + overwrite policy chosen. |
-| PREFLIGHT | preflight ran (`getPreflightReport() != null`) AND `!report.hasBlockers()` AND no entries-without-password remain. |
+| PREFLIGHT | preflight ran (`getPreflightReport() != null`) AND `!report.hasBlockers()`. The optional `entryOverridePassword` field is recorded on the plan if non-empty; absent that, the engine's `PasswordProvider` prompts per-entry at execution time inside `EntryCopy.copy(...)` and the wizard has nothing to gate. |
 | EXECUTE  | task not currently running. |
 
 `backEnabled` is `currentStep != SOURCE`.
 
 ### 4.3 Reset rules
 
-When `composition.keyStoreVm().loadResult` transitions to a new success result,
-the shell controller calls `ConvertWizardController.resetOnSourceChange()`
-which: (a) calls `ConvertController.onSourceSelected(info)` to repopulate the
-source + alias lists, (b) clears `targetPath`, alias-conflict/overwrite
-policies revert to defaults, `preflightReport` and `lastResult` cleared, and
-`currentStep` reset to SOURCE. The wizard's selections DO NOT persist across
-keystores — this matches Compliance's existing reset behavior.
+When `composition.inspectVm().loadResultProperty()` transitions to a new
+success result, the shell controller calls
+`ConvertWizardController.resetOnSourceChange()` which: (a) calls
+`ConvertController.onSourceSelected(info)` to repopulate the source + alias
+lists, (b) clears `targetPath`, alias-conflict/overwrite policies revert to
+defaults, `preflightReport` and `lastResult` cleared, and `currentStep`
+reset to SOURCE. The wizard's selections DO NOT persist across keystores —
+this matches Compliance's existing reset behavior.
 
 ## 5. Step-by-step layout
 
@@ -163,9 +172,11 @@ Two-column grid:
 * Target encoding: `Binary | Base64`.
 * Target path: text field + `Browse…` (file-chooser in Save mode).
 * Target store password: masked `PasswordField` with show/hide eye toggle.
-  Required unless target is JKS-or-PKCS12 truststore (the wizard refuses to
-  write private-key entries to a JKS-or-PKCS12 truststore by construction —
-  SPEC §8 + cert_tool.md §2 #4).
+  Required unless target is JKS-or-PKCS12 truststore with no private entries;
+  if the user selects JKS/PKCS12 as the target but the source contains
+  private-key entries, Preflight surfaces `BCFKS_TO_JKS_PRIVATE_KEY_DOWNGRADE`
+  (BCFKS source) or — for any other source onto JKS — a structural downgrade
+  warning that Step 4 will display.
 * Base64 line width: combo (32 / 48 / 64 / 76 / 100), default 64. Disabled
   when encoding is Binary.
 * Wrap with PEM-style BEGIN/END headers: checkbox, default unchecked.
@@ -185,10 +196,14 @@ and Next disabled. After completion:
 2. **Warnings** (yellow, expandable).
 3. **Info** (gray, collapsed).
 
-Below the three sections, an *Entry passwords* subsection lists any
-`PreflightFinding` whose `code` is the engine's entry-needs-password code.
-Each row: alias + masked `PasswordField` with eye toggle. Next disabled while
-any required password is empty.
+Below the three sections, an *Entry passwords (optional)* subsection offers a
+single masked `PasswordField`: "Override per-entry key password (applies to
+all selected private-key entries; leave blank to be prompted per-entry at
+execution time)." This field maps to `ConversionPlan.entryPasswords()` as a
+parallel array of length `includedAliases().size()`. When blank, the engine's
+existing `PasswordProvider.requestEntryPassword(...)` dialog prompts at
+execution time inside `EntryCopy.copy(...)` — no engine change required, and
+the user is never blocked here on Step 4.
 
 ### 5.5 Step 5 — Execute and verify
 
@@ -214,7 +229,7 @@ After execution:
 
 ### 6.1 Source loading
 
-`composition.keyStoreVm().loadResult` (success only) →
+`composition.inspectVm().loadResultProperty()` (success only) →
 `MainShellController.onKeyStoreChanged()` →
 `convertController.onSourceSelected(info)` AND
 `convertWizardController.resetOnSourceChange()`. One-way pipeline: Inspect
@@ -276,20 +291,26 @@ is in flight (the user can leave the wizard; the task runs to completion).
 
 ### 6.5 Composition root
 
-`AppComposition` constructs the wizard once at startup:
+`AppComposition` constructs the wizard once at startup. The composition is
+constructed recursively so the wizard VM can observe its siblings; the
+wizard does NOT observe `inspectVm().loadResultProperty()` directly — the
+shell controller routes that change through `resetOnSourceChange()`:
 
 ```java
-ConvertWizardViewModel convertVm = new ConvertWizardViewModel(
-    composition.keyStoreVm().sourceProperty(),
-    composition.complianceVm().selectedProfileProperty());
-ConvertController convertController = new ConvertController(convertVm);
+// In AppComposition.defaultComposition() — the existing ConvertViewModel is
+// replaced by the wizard VM (no separate base ConvertViewModel is needed):
+ConvertWizardViewModel convertWizardVm = new ConvertWizardViewModel();
+ConvertController convertController = new ConvertController(convertWizardVm);
 ConvertWizardController wizardController = new ConvertWizardController(
-    convertController, convertVm, executor, () -> new ConvertPreflightTask(...));
-ConvertView convertView = new ConvertView(convertVm, wizardController);
+    convertController, convertWizardVm, executor, () -> new ConvertPreflightTask(...));
+ConvertView convertView = new ConvertView(convertWizardVm, wizardController);
+
+// Accessors expose the wizard VM as the composition's convertVm() and the
+// wizard controller as composition.convertWizardController().
 ```
 
-The constructor takes observable source + profile so the VM stays in sync
-without UI code re-wiring.
+Tests construct `AppComposition` via the existing `Builder` so they can
+inject fake passwords / executors without touching `defaultComposition()`.
 
 ## 7. Error handling
 
