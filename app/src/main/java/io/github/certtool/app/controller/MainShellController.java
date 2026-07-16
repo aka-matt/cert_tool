@@ -1,16 +1,24 @@
 package io.github.certtool.app.controller;
 
 import io.github.certtool.app.AppComposition;
+import io.github.certtool.app.compliance.RuleContextFactory;
 import io.github.certtool.app.settings.Settings;
 import io.github.certtool.app.task.AnalyzeKeyStoreTask;
+import io.github.certtool.app.task.AssessmentTask;
 import io.github.certtool.app.task.AutoDetectKeyStoreLoadTask;
+import io.github.certtool.app.task.ExportReportTask;
 import io.github.certtool.app.viewmodel.InspectViewModel;
+import io.github.certtool.domain.assessment.AssessmentReport;
+import io.github.certtool.domain.context.RuleContext;
 import io.github.certtool.domain.inspect.InspectedCertificate;
 import io.github.certtool.domain.inspect.InspectedEntry;
 import io.github.certtool.domain.inspect.InspectedKeyStore;
 import io.github.certtool.domain.keystore.ContentEncoding;
 import io.github.certtool.domain.keystore.KeyStoreContainerType;
 import io.github.certtool.domain.load.KeyStoreLoadResult;
+import io.github.certtool.domain.profile.Profile;
+import io.github.certtool.reporting.ReportEnvelope;
+import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -73,6 +81,7 @@ public final class MainShellController {
     private final Stage stage;
     private BorderPane root;
     private Node inspectViewNode;
+    private Node complianceViewNode;
     private SplitPane inspectSplit;
     private ProgressBar progress;
     private Label statusMessage;
@@ -143,6 +152,14 @@ public final class MainShellController {
         return inspectViewNode;
     }
 
+    /** Package-private accessor: lazily builds and returns the Compliance pane root. */
+    Node complianceView() {
+        if (complianceViewNode == null) {
+            complianceViewNode = buildComplianceView();
+        }
+        return complianceViewNode;
+    }
+
     void restoreInspectDividerPosition(Settings settings) {
         if (inspectSplit == null) {
             return;
@@ -198,7 +215,7 @@ public final class MainShellController {
 
         Tab compliance = new Tab("Compliance");
         compliance.setClosable(false);
-        compliance.setContent(buildComplianceView());
+        compliance.setContent(complianceView());
 
         Tab convert = new Tab("Convert");
         convert.setClosable(false);
@@ -832,6 +849,111 @@ public final class MainShellController {
         currentAnalyzeTask = analyze;
         bindAnalyzeTask(analyze, loadTask, onAnalyzed);
         composition.backgroundExecutor().submit(analyze);
+    }
+
+    /** Builds a RuleContext from current Inspect state and dispatches an AssessmentTask. */
+    void runAssessment() {
+        var inspectVm = composition.inspectVm();
+        var load = inspectVm.getLoadResult();
+        var inspected = inspectVm.getInspected();
+        var encoding = inspectVm.getContentEncoding();
+        if (load == null || !load.isSuccess() || inspected == null || encoding == null) {
+            statusMessage.setText("Load and analyze a KeyStore first.");
+            return;
+        }
+        Profile profile = composition.complianceVm().getSelectedProfile();
+        if (profile == null) {
+            statusMessage.setText("Select a profile.");
+            return;
+        }
+        RuleContext ctx;
+        try {
+            ctx = RuleContextFactory.from(load, inspected, encoding,
+                    nullIfEmpty(inspectVm.getSourcePath()), 0L,
+                    io.github.certtool.app.platform.RuntimeInspector.capture());
+        } catch (RuntimeException ex) {
+            LOG.warn("Failed to build RuleContext", ex);
+            statusMessage.setText("Assessment failed.");
+            return;
+        }
+        AssessmentTask task = composition.assessTask(profile, ctx);
+        task.stateProperty().addListener((obs, oldS, newS) -> updateProgress(newS, task.getProgress()));
+        task.messageProperty().addListener((obs, oldM, newM) -> {
+            if (newM != null && !newM.isEmpty()) {
+                statusMessage.setText(newM);
+            }
+        });
+        task.setOnSucceeded(evt -> {
+            AssessmentReport report = task.getValue();
+            composition.complianceController().onReportProduced(report);
+            statusMessage.setText("Assessment complete: " + report.findings().size() + " finding(s).");
+        });
+        task.setOnFailed(evt -> statusMessage.setText("Assessment failed."));
+        composition.backgroundExecutor().submit(task);
+    }
+
+    /** File-chooser-driven export of the current AssessmentReport. */
+    void exportAssessmentReport() {
+        AssessmentReport report = composition.complianceVm().getReport();
+        if (report == null) {
+            statusMessage.setText("Run an assessment before exporting.");
+            return;
+        }
+        FileChooser chooser = new FileChooser();
+        chooser.setTitle("Export FIPS Compatibility Assessment Report");
+        chooser.getExtensionFilters().addAll(
+                new FileChooser.ExtensionFilter("JSON (*.json)", "*.json"),
+                new FileChooser.ExtensionFilter("HTML (*.html)", "*.html"),
+                new FileChooser.ExtensionFilter("Markdown (*.md)", "*.md"));
+        chooser.setSelectedExtensionFilter(chooser.getExtensionFilters().get(0));
+        File chosen = chooser.showSaveDialog(stage);
+        if (chosen == null) {
+            LOG.debug("Export Report dialog cancelled.");
+            return;
+        }
+        ExportReportTask.Format fmt = inferFormat(chosen, chooser.getSelectedExtensionFilter());
+        String title = "FIPS Compatibility Assessment - " + report.profile().name();
+        String sourceLabel = reportSourceLabel(composition.inspectVm().getSourcePath());
+        ReportEnvelope env = new ReportEnvelope.AssessmentReportEnvelope(title, sourceLabel, report);
+        ExportReportTask task = composition.exportTask(env, chosen.toPath(), fmt);
+        task.messageProperty().addListener((obs, oldM, newM) -> {
+            if (newM != null && !newM.isEmpty()) {
+                statusMessage.setText(newM);
+            }
+        });
+        task.setOnSucceeded(evt -> statusMessage.setText("Exported report to " + chosen));
+        task.setOnFailed(evt -> statusMessage.setText("Export failed."));
+        composition.backgroundExecutor().submit(task);
+    }
+
+    /** Notifies the compliance view that a new keystore has been loaded. */
+    void onKeyStoreChanged() {
+        composition.complianceController().onKeyStoreChanged();
+    }
+
+    private static ExportReportTask.Format inferFormat(File chosen, FileChooser.ExtensionFilter filter) {
+        String name = chosen.getName().toLowerCase(java.util.Locale.ROOT);
+        if (filter != null && filter.getDescription() != null) {
+            String d = filter.getDescription().toLowerCase(java.util.Locale.ROOT);
+            if (d.startsWith("json")) return ExportReportTask.Format.JSON;
+            if (d.startsWith("html")) return ExportReportTask.Format.HTML;
+            if (d.startsWith("markdown")) return ExportReportTask.Format.MARKDOWN;
+        }
+        if (name.endsWith(".json")) return ExportReportTask.Format.JSON;
+        if (name.endsWith(".html")) return ExportReportTask.Format.HTML;
+        if (name.endsWith(".md")) return ExportReportTask.Format.MARKDOWN;
+        return ExportReportTask.Format.JSON;
+    }
+
+    private static String reportSourceLabel(String sourcePath) {
+        if (sourcePath == null || sourcePath.isEmpty()) {
+            return "pasted-base64";
+        }
+        return sourcePath;
+    }
+
+    private static String nullIfEmpty(String s) {
+        return s == null || s.isEmpty() ? null : s;
     }
 
     private void bindAnalyzeTask(
