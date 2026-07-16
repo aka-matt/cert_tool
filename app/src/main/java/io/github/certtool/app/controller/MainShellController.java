@@ -8,7 +8,10 @@ import io.github.certtool.app.task.AssessmentTask;
 import io.github.certtool.app.task.AutoDetectKeyStoreLoadTask;
 import io.github.certtool.app.task.ExportReportTask;
 import io.github.certtool.app.viewmodel.InspectViewModel;
+import io.github.certtool.domain.assessment.AssessmentFinding;
 import io.github.certtool.domain.assessment.AssessmentReport;
+import io.github.certtool.domain.assessment.AssessmentStatus;
+import io.github.certtool.domain.assessment.Severity;
 import io.github.certtool.domain.context.RuleContext;
 import io.github.certtool.domain.inspect.InspectedCertificate;
 import io.github.certtool.domain.inspect.InspectedEntry;
@@ -36,6 +39,7 @@ import javafx.scene.control.Label;
 import javafx.scene.control.Button;
 import javafx.scene.control.ButtonType;
 import javafx.scene.control.ChoiceDialog;
+import javafx.scene.control.ComboBox;
 import javafx.scene.control.Dialog;
 import javafx.scene.control.Menu;
 import javafx.scene.control.MenuBar;
@@ -46,7 +50,10 @@ import javafx.scene.control.SeparatorMenuItem;
 import javafx.scene.control.SplitPane;
 import javafx.scene.control.Tab;
 import javafx.scene.control.TabPane;
+import javafx.scene.control.TableColumn;
+import javafx.scene.control.TableView;
 import javafx.scene.control.TextArea;
+import javafx.scene.control.TextField;
 import javafx.scene.control.TitledPane;
 import javafx.scene.control.ToolBar;
 import javafx.scene.control.TreeCell;
@@ -188,7 +195,7 @@ public final class MainShellController {
         MenuItem openBase64 = new MenuItem("Paste Base64…");
         openBase64.setOnAction(evt -> onPasteBase64());
         MenuItem export = new MenuItem("Export Report…");
-        export.setOnAction(evt -> LOG.info("Export Report not yet implemented in scope"));
+        export.setOnAction(evt -> exportAssessmentReport());
         MenuItem exit = new MenuItem("Exit");
         exit.setOnAction(evt -> stage.close());
         file.getItems().addAll(openFile, openBase64, new SeparatorMenuItem(), export, new SeparatorMenuItem(), exit);
@@ -626,15 +633,150 @@ public final class MainShellController {
     }
 
     private Node buildComplianceView() {
-        // Minimal placeholder: shows the first available profile name.
-        Label info = new Label("Run an assessment after loading a KeyStore.");
-        var profiles = composition.complianceVm().availableProfiles();
-        if (!profiles.isEmpty()) {
-            info.setText("Profile: " + profiles.get(0).name());
+        BorderPane shell = new BorderPane();
+        shell.setPadding(new Insets(12));
+
+        // ---- TOP: profile + actions + disclaimer ---------------------------------------
+        VBox top = new VBox(8);
+
+        HBox actions = new HBox(8);
+        actions.setAlignment(javafx.geometry.Pos.CENTER_LEFT);
+        ComboBox<Profile> profileCombo = new ComboBox<>();
+        profileCombo.setId("complianceProfileCombo");
+        profileCombo.setItems(composition.complianceVm().availableProfiles());
+        profileCombo.valueProperty().bindBidirectional(composition.complianceVm().selectedProfileProperty());
+
+        Button runButton = new Button("Run Assessment");
+        runButton.setId("complianceRunButton");
+        runButton.setOnAction(evt -> runAssessment());
+
+        Button exportButton = new Button("Export Report…");
+        exportButton.setId("complianceExportButton");
+        exportButton.setOnAction(evt -> exportAssessmentReport());
+
+        actions.getChildren().addAll(new Label("Profile:"), profileCombo, runButton, exportButton);
+
+        TextArea disclaimer = new TextArea(io.github.certtool.domain.assessment.FipsDisclaimer.text());
+        disclaimer.setId("complianceDisclaimer");
+        disclaimer.setWrapText(true);
+        disclaimer.setEditable(false);
+        disclaimer.setPrefRowCount(3);
+
+        top.getChildren().addAll(actions, disclaimer);
+
+        // ---- MIDDLE: summary chips -----------------------------------------------------
+        HBox chips = new HBox(8);
+        chips.setId("complianceSummaryChips");
+        Label[] chipLabels = new Label[AssessmentStatus.values().length];
+        for (int i = 0; i < AssessmentStatus.values().length; i++) {
+            AssessmentStatus s = AssessmentStatus.values()[i];
+            Label l = new Label(formatChip(s, 0L));
+            l.setId("complianceChip-" + s.name());
+            chipLabels[i] = l;
+            chips.getChildren().add(l);
         }
-        VBox box = new VBox(8, info);
-        box.setPadding(new Insets(16));
-        return box;
+        composition.complianceVm().reportProperty().addListener((obs, oldR, newR) -> {
+            var counts = composition.complianceVm().summaryCounts();
+            for (int i = 0; i < AssessmentStatus.values().length; i++) {
+                AssessmentStatus s = AssessmentStatus.values()[i];
+                chipLabels[i].setText(formatChip(s, counts.getOrDefault(s, 0L)));
+            }
+        });
+
+        // ---- FILTER ROW ---------------------------------------------------------------
+        HBox filterRow = new HBox(8);
+        filterRow.setAlignment(javafx.geometry.Pos.CENTER_LEFT);
+        TextField filterField = new TextField();
+        filterField.setId("complianceFilterField");
+        filterField.setPromptText("Filter by rule id, title, or text");
+        filterField.textProperty().bindBidirectional(composition.complianceVm().filterTextProperty());
+
+        ComboBox<Severity> severityCombo = new ComboBox<>();
+        severityCombo.setId("complianceSeverityCombo");
+        severityCombo.getItems().addAll(Severity.values());
+        severityCombo.valueProperty().bindBidirectional(composition.complianceVm().minSeverityFilterProperty());
+        filterRow.getChildren().addAll(new Label("Filter:"), filterField, new Label("Min severity:"), severityCombo);
+
+        // ---- TABLE + DETAIL ----------------------------------------------------------
+        TableView<AssessmentFinding> table = new TableView<>();
+        table.setId("complianceFindingsTable");
+        table.setItems(composition.complianceVm().filteredFindings());
+        table.setPlaceholder(new Label("Run an assessment after loading a KeyStore."));
+        TableColumn<AssessmentFinding, AssessmentStatus> colStatus = new TableColumn<>("Status");
+        colStatus.setCellValueFactory(cd -> new javafx.beans.property.SimpleObjectProperty<>(cd.getValue().status()));
+        TableColumn<AssessmentFinding, Severity> colSev = new TableColumn<>("Severity");
+        colSev.setCellValueFactory(cd -> new javafx.beans.property.SimpleObjectProperty<>(cd.getValue().severity()));
+        TableColumn<AssessmentFinding, String> colRule = new TableColumn<>("Rule");
+        colRule.setCellValueFactory(cd -> new javafx.beans.property.SimpleStringProperty(cd.getValue().ruleId()));
+        TableColumn<AssessmentFinding, String> colTitle = new TableColumn<>("Title");
+        colTitle.setCellValueFactory(cd -> new javafx.beans.property.SimpleStringProperty(cd.getValue().title()));
+        table.getColumns().addAll(colStatus, colSev, colRule, colTitle);
+        table.getSelectionModel().selectedItemProperty().addListener((obs, oldF, newF) ->
+                composition.complianceController().onFindingSelected(newF));
+
+        VBox detail = new VBox(4);
+        detail.setId("complianceDetail");
+        Label detailRule = new Label();
+        detailRule.setId("complianceDetailRule");
+        Label detailStatus = new Label();
+        Label detailSev = new Label();
+        TextArea detailSummary = new TextArea();
+        detailSummary.setEditable(false);
+        detailSummary.setWrapText(true);
+        detailSummary.setPrefRowCount(2);
+        TextArea detailEvidence = new TextArea();
+        detailEvidence.setEditable(false);
+        detailEvidence.setWrapText(true);
+        detailEvidence.setPrefRowCount(3);
+        TextArea detailRemediation = new TextArea();
+        detailRemediation.setEditable(false);
+        detailRemediation.setWrapText(true);
+        detailRemediation.setPrefRowCount(3);
+        Label detailReferences = new Label();
+        detail.getChildren().addAll(
+                new Label("Detail"),
+                detailRule, detailStatus, detailSev,
+                new Label("Summary:"), detailSummary,
+                new Label("Evidence:"), detailEvidence,
+                new Label("Remediation:"), detailRemediation,
+                new Label("References:"), detailReferences);
+
+        composition.complianceVm().selectedFindingProperty().addListener((obs, oldF, f) -> {
+            if (f == null) {
+                detailRule.setText("");
+                detailStatus.setText("");
+                detailSev.setText("");
+                detailSummary.setText("");
+                detailEvidence.setText("");
+                detailRemediation.setText("");
+                detailReferences.setText("");
+            } else {
+                detailRule.setText(f.ruleId() + " — " + f.title());
+                detailStatus.setText("Status: " + f.status());
+                detailSev.setText("Severity: " + f.severity());
+                detailSummary.setText(f.summary());
+                detailEvidence.setText(f.evidence());
+                detailRemediation.setText(f.remediation());
+                detailReferences.setText(String.join(", ", f.references()));
+            }
+        });
+
+        SplitPane split = new SplitPane();
+        split.getItems().addAll(table, detail);
+        split.setDividerPosition(0, 0.55);
+
+        VBox content = new VBox(8, top, chips, filterRow, split);
+        shell.setCenter(content);
+
+        // Initial enablement based on whether a report exists.
+        exportButton.disableProperty().bind(
+                composition.complianceVm().reportProperty().isNull());
+
+        return shell;
+    }
+
+    private static String formatChip(AssessmentStatus s, long count) {
+        return s.name() + ": " + count;
     }
 
     private Node buildConvertView() {
@@ -713,6 +855,7 @@ public final class MainShellController {
             KeyStoreLoadResult result = task.getValue();
             composition.inspectController().onLoadResult(result);
             recordLoadSource(ContentEncoding.BINARY, selected.toString());
+            onKeyStoreChanged();
             composition.inspectController().applyInspection(null);
             AnalyzeKeyStoreTask analyze = composition.analyzeTask(result, ContentEncoding.BINARY);
             submitAnalyzeTask(analyze, task, () -> setStatus("Analyzed keystore or truststore."));
@@ -757,6 +900,7 @@ public final class MainShellController {
         if (result != null && result.isSuccess()) {
             composition.inspectController().onLoadResult(result);
             recordLoadSource(ContentEncoding.BASE64, null);
+            onKeyStoreChanged();
             composition.inspectController().applyInspection(null);
             AnalyzeKeyStoreTask analyze = composition.analyzeTask(result, ContentEncoding.BASE64);
             submitAnalyzeTask(analyze, currentLoadTask,
@@ -795,6 +939,7 @@ public final class MainShellController {
             if (result != null && result.isSuccess()) {
                 composition.inspectController().onLoadResult(result);
                 recordLoadSource(ContentEncoding.BASE64, null);
+                onKeyStoreChanged();
                 composition.inspectController().applyInspection(null);
                 AnalyzeKeyStoreTask analyze = composition.analyzeTask(result, ContentEncoding.BASE64);
                 submitAnalyzeTask(analyze, task,
