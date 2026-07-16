@@ -27,8 +27,6 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.logging.Level;
-import java.util.logging.Logger;
 import java.util.Optional;
 import javafx.concurrent.Task;
 import javafx.concurrent.Worker;
@@ -94,6 +92,8 @@ public final class MainShellController {
     private Label statusMessage;
     private volatile Task<?> currentLoadTask;
     private volatile AnalyzeKeyStoreTask currentAnalyzeTask;
+    private volatile AssessmentTask currentAssessTask;
+    private volatile Button runAssessmentButton;
 
     public MainShellController(AppComposition composition, Stage stage) {
         this.composition = composition;
@@ -649,6 +649,7 @@ public final class MainShellController {
         Button runButton = new Button("Run Assessment");
         runButton.setId("complianceRunButton");
         runButton.setOnAction(evt -> runAssessment());
+        runAssessmentButton = runButton;
 
         Button exportButton = new Button("Export Report…");
         exportButton.setId("complianceExportButton");
@@ -998,6 +999,14 @@ public final class MainShellController {
 
     /** Builds a RuleContext from current Inspect state and dispatches an AssessmentTask. */
     void runAssessment() {
+        // Re-entry guard: a previous assessment is still in flight. Pattern B disables the Run
+        // button while the task is running; this check covers the rare window between submit and
+        // listener delivery.
+        AssessmentTask inFlight = currentAssessTask;
+        if (inFlight != null && !inFlight.isDone()) {
+            statusMessage.setText("Assessment already running.");
+            return;
+        }
         var inspectVm = composition.inspectVm();
         var load = inspectVm.getLoadResult();
         var inspected = inspectVm.getInspected();
@@ -1022,6 +1031,10 @@ public final class MainShellController {
             return;
         }
         AssessmentTask task = composition.assessTask(profile, ctx);
+        currentAssessTask = task;
+        if (runAssessmentButton != null) {
+            runAssessmentButton.setDisable(true);
+        }
         task.stateProperty().addListener((obs, oldS, newS) -> updateProgress(newS, task.getProgress()));
         task.messageProperty().addListener((obs, oldM, newM) -> {
             if (newM != null && !newM.isEmpty()) {
@@ -1029,11 +1042,27 @@ public final class MainShellController {
             }
         });
         task.setOnSucceeded(evt -> {
+            currentAssessTask = null;
+            if (runAssessmentButton != null) {
+                runAssessmentButton.setDisable(false);
+            }
             AssessmentReport report = task.getValue();
             composition.complianceController().onReportProduced(report);
             statusMessage.setText("Assessment complete: " + report.findings().size() + " finding(s).");
         });
-        task.setOnFailed(evt -> statusMessage.setText("Assessment failed."));
+        task.setOnFailed(evt -> {
+            currentAssessTask = null;
+            if (runAssessmentButton != null) {
+                runAssessmentButton.setDisable(false);
+            }
+            statusMessage.setText("Assessment failed.");
+        });
+        task.setOnCancelled(evt -> {
+            currentAssessTask = null;
+            if (runAssessmentButton != null) {
+                runAssessmentButton.setDisable(false);
+            }
+        });
         composition.backgroundExecutor().submit(task);
     }
 
@@ -1123,6 +1152,10 @@ public final class MainShellController {
         return currentLoadTask;
     }
 
+    AssessmentTask currentAssessTask() {
+        return currentAssessTask;
+    }
+
     private void setStatus(String message) {
         if (statusMessage != null) {
             statusMessage.setText(message);
@@ -1147,22 +1180,10 @@ public final class MainShellController {
         }
     }
 
-    /** No-op helper to mark unused ContentEncoding import (kept for clarity in the layout above). */
-    @SuppressWarnings("unused")
-    private static ContentEncoding touch() {
-        return ContentEncoding.BINARY;
-    }
-
     /** Records encoding + source path on the Inspect view-model after a successful load. */
     void recordLoadSource(ContentEncoding encoding, String sourcePath) {
         composition.inspectVm().setContentEncoding(encoding);
         composition.inspectVm().setSourcePath(sourcePath);
-    }
-
-    /** No-op helper to keep the java.util.logging import alive for migration later. */
-    @SuppressWarnings("unused")
-    private static void touchLogger() {
-        Logger.getLogger("touch").log(Level.FINE, "noop");
     }
 
     /**

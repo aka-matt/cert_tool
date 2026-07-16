@@ -8,8 +8,8 @@ import io.github.certtool.domain.assessment.Severity;
 import io.github.certtool.domain.profile.Profile;
 import java.io.IOException;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
-import java.util.Objects;
 import javafx.beans.property.ObjectProperty;
 import javafx.beans.property.SimpleObjectProperty;
 import javafx.beans.property.SimpleStringProperty;
@@ -46,6 +46,7 @@ public final class ComplianceViewModel {
     public ObjectProperty<AssessmentReport> reportProperty() { return report; }
     public AssessmentReport getReport() { return report.get(); }
     public void setReport(AssessmentReport r) {
+        selectedFinding.set(null);
         report.set(r);
         rebuildFiltered();
     }
@@ -89,7 +90,7 @@ public final class ComplianceViewModel {
         if (r == null) {
             return;
         }
-        String needle = filterText.get() == null ? "" : filterText.get().toLowerCase(Objects.requireNonNullElse(java.util.Locale.ROOT, java.util.Locale.ROOT));
+        String needle = filterText.get() == null ? "" : filterText.get().toLowerCase(Locale.ROOT);
         Severity min = minSeverityFilter.get();
         for (AssessmentFinding f : r.findings()) {
             if (min != null && f.severity().ordinal() < min.ordinal()) {

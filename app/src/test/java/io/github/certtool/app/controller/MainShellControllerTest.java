@@ -8,6 +8,7 @@ import io.github.certtool.app.AppComposition;
 import io.github.certtool.app.settings.Settings;
 import io.github.certtool.app.settings.SettingsService;
 import io.github.certtool.app.task.AnalyzeKeyStoreTask;
+import io.github.certtool.app.task.AssessmentTask;
 import io.github.certtool.app.theme.ThemeMode;
 import io.github.certtool.app.theme.ThemeService;
 import io.github.certtool.app.viewmodel.ComplianceViewModel;
@@ -399,6 +400,55 @@ class MainShellControllerTest {
         controller.onKeyStoreChanged();
         assertThat(comp.complianceVm().getReport()).isNull();
         assertThat(comp.complianceVm().filteredFindings()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("Run Assessment disables the Run button while the task is in flight and re-enables it on completion")
+    void runAssessmentDisablesButtonWhileInFlight() throws Exception {
+        RecordingExecutor executor = new RecordingExecutor();
+        AppComposition comp = composition(executor);
+
+        // Set up the state runAssessment() needs to clear its preconditions.
+        java.security.cert.X509Certificate cert = CertificateGenerator.selfSigned(
+                new javax.security.auth.x500.X500Principal("CN=reentry-guard"),
+                CertificateGenerator.rsaKeyPair(2048),
+                "SHA256withRSA", java.time.Duration.ofDays(7));
+        KeyStoreLoadResult loaded = KeyStoreLoadResult.success(
+                KeyStoreContainerType.JKS, "SUN", "17",
+                List.of(LoadedEntry.trustedCertificate("alias-x", cert, new java.util.Date())));
+        comp.inspectController().onLoadResult(loaded);
+        comp.inspectVm().setContentEncoding(ContentEncoding.BINARY);
+        comp.inspectController().applyInspection(buildInspected("alias-x", cert));
+
+        MainShellController controller = new MainShellController(comp, null);
+        Node view = controller.complianceView();
+        Button runButton = findButton(view, "Run Assessment");
+        assertThat(runButton).isNotNull();
+        assertThat(runButton.isDisabled())
+                .as("Run button should start enabled")
+                .isFalse();
+
+        // Trigger runAssessment on the FX thread — the button should immediately disable.
+        runOnFxThreadAndWait(controller::runAssessment);
+
+        assertThat(runButton.isDisabled())
+                .as("Run Assessment must be disabled while a task is in flight")
+                .isTrue();
+
+        // Complete the in-flight task by running it (RecordingExecutor never executes
+        // submitted tasks, so we drive them to completion here). Running the task performs
+        // the call(), transitions to SUCCEEDED, and queues the registered handlers on the
+        // JavaFX Application Thread; we then drain that queue to let them run.
+        AssessmentTask submitted = controller.currentAssessTask();
+        assertThat(submitted)
+                .as("runAssessment() must record the in-flight AssessmentTask")
+                .isNotNull();
+        submitted.run();
+        runOnFxThreadAndWait(() -> { });
+
+        assertThat(runButton.isDisabled())
+                .as("Run Assessment must be re-enabled after the task completes")
+                .isFalse();
     }
 
     private static InspectedKeyStore buildInspected(String alias, java.security.cert.X509Certificate cert) {

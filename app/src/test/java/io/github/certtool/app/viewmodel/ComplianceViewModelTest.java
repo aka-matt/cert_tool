@@ -55,4 +55,27 @@ class ComplianceViewModelTest {
         assertThat(vm.getSelectedFinding()).isNull();
         assertThat(vm.summaryCounts()).isEmpty();
     }
+
+    @Test
+    @DisplayName("setReport() resets selectedFinding so stale rows do not leak across assessments")
+    void setReportResetsSelectedFinding() throws Exception {
+        ComplianceViewModel vm = new ComplianceViewModel();
+        AssessmentReport r1 = sampleReport();
+        vm.setReport(r1);
+        AssessmentFinding previous = r1.findings().get(0);
+        vm.setSelectedFinding(previous);
+        assertThat(vm.getSelectedFinding()).isSameAs(previous);
+
+        AssessmentReport r2 = new AssessmentReport(
+                DefaultProfiles.loadFips1403(),
+                Instant.parse("2026-07-15T01:00:00Z"),
+                List.of(new AssessmentFinding("R-other", "Other finding",
+                        AssessmentStatus.FAIL, Severity.HIGH,
+                        "boom", "ev", "rem", List.of())));
+        vm.setReport(r2);
+
+        assertThat(vm.getSelectedFinding())
+                .as("selectedFinding should be reset when a new report is set")
+                .isNull();
+    }
 }
