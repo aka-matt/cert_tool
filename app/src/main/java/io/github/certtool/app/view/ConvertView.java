@@ -141,6 +141,11 @@ public final class ConvertView {
                 javafx.beans.binding.Bindings.createBooleanBinding(
                         () -> vm.isRunningConvert(),
                         vm.runningConvertProperty()));
+        // Next button is disabled when the current step is invalid (e.g., empty target path).
+        nextButton.disableProperty().bind(
+                javafx.beans.binding.Bindings.createBooleanBinding(
+                        () -> !vm.isNextEnabled(),
+                        vm.nextEnabledProperty()));
         reRunPreflightButton.setVisible(false);
         return footer;
     }
