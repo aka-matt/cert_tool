@@ -255,10 +255,12 @@ public final class ConvertWizardController {
         recomputeNextEnabled();
     }
 
-    /** Terminal: surface a short error to the listener. The user can still navigate Back. */
+    /** Terminal: surface a short error to the listener. The user can still navigate Back.
+     *  Per CLAUDE.md §2 rule 10, exception message text is redacted — only the error class
+     *  is surfaced to avoid leaking sensitive content into user-visible text. */
     public void onPreflightFailed(Throwable error) {
-        String msg = error.getClass().getSimpleName() + ": "
-                + (error.getMessage() == null ? "unknown" : error.getMessage());
+        String simpleName = error.getClass().getSimpleName();
+        String msg = simpleName + " (message redacted for security)";
         vm.setRunningPreflight(false);
         preflightErrorListener.accept(msg);
         recomputeNextEnabled();
@@ -299,10 +301,10 @@ public final class ConvertWizardController {
         task.setOnFailed(e -> {
             if (currentTask == task) currentTask = null;
             vm.setRunningConvert(false);
-            onStatusMessage.accept("Conversion failed: "
-                    + (task.getException() == null ? "unknown"
-                            : task.getException().getClass().getSimpleName() + ": "
-                            + task.getException().getMessage()));
+            String failureNote = task.getException() == null
+                    ? "unknown" : task.getException().getClass().getSimpleName();
+            onStatusMessage.accept("Conversion failed: " + failureNote
+                    + " (message redacted for security)");
             recomputeNextEnabled();
         });
         task.setOnCancelled(e -> {
@@ -421,10 +423,10 @@ public final class ConvertWizardController {
         task.setOnFailed(e -> {
             if (currentTask == task) currentTask = null;
             vm.setRunningConvert(false);
-            onStatusMessage.accept("Conversion failed: "
-                    + (task.getException() == null ? "unknown"
-                            : task.getException().getClass().getSimpleName() + ": "
-                            + task.getException().getMessage()));
+            String failureNote = task.getException() == null
+                    ? "unknown" : task.getException().getClass().getSimpleName();
+            onStatusMessage.accept("Conversion failed: " + failureNote
+                    + " (message redacted for security)");
             recomputeNextEnabled();
         });
         task.setOnCancelled(e -> {
