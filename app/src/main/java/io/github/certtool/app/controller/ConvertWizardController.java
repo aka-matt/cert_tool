@@ -1,0 +1,188 @@
+package io.github.certtool.app.controller;
+
+import io.github.certtool.app.viewmodel.ConvertWizardViewModel;
+import io.github.certtool.app.viewmodel.ConvertWizardViewModel.WizardStep;
+import io.github.certtool.conversion.domain.plan.AliasConflictPolicy;
+import io.github.certtool.conversion.domain.plan.ConversionPlan;
+import io.github.certtool.conversion.domain.plan.OverwritePolicy;
+import io.github.certtool.domain.keystore.ContentEncoding;
+import io.github.certtool.domain.keystore.EntryType;
+import io.github.certtool.domain.keystore.KeyStoreContainerType;
+import io.github.certtool.domain.profile.Profile;
+import io.github.certtool.keystorecore.password.PasswordProvider;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.concurrent.ExecutorService;
+import java.util.function.BiFunction;
+import java.util.function.Supplier;
+
+/**
+ * Pure-logic controller for the Convert wizard. Owns the per-step validators, plan builder, and
+ * reset-on-source-change behaviour. {@link #handleEnteredPreflight} and {@link #runConvert} take
+ * the preflight task factory and convert task factory as lazy suppliers — Tasks 4 and 12 supply
+ * the production suppliers; tests can pass {@code () -> null}.
+ *
+ * <p>The controller holds no JavaFX references. The view binds to the VM; the controller mutates
+ * the VM.
+ */
+public final class ConvertWizardController {
+
+    /** Default target store password: empty array — overridden in Task 8 once the user types. */
+    private static final char[] NO_TARGET_PASSWORD = new char[0];
+
+    private final ConvertController convertController;
+    private final ConvertWizardViewModel vm;
+    private final ExecutorService executor;
+
+    /** Lazy preflight-task factory (set in Task 4). */
+    private Supplier<Runnable> preflightTaskFactory = () -> () -> {
+        throw new IllegalStateException("preflightTaskFactory not wired yet");
+    };
+
+    /** Lazy convert-task runner (set in Task 12). */
+    private BiFunction<ConversionPlan, Profile, javafx.concurrent.Task<?>> convertTaskRunner =
+            (plan, profile) -> {
+                throw new IllegalStateException("convertTaskRunner not wired yet");
+            };
+
+    public ConvertWizardController(
+            ConvertController convertController,
+            ConvertWizardViewModel vm,
+            ExecutorService executor) {
+        this.convertController = Objects.requireNonNull(convertController, "convertController");
+        this.vm = Objects.requireNonNull(vm, "vm");
+        this.executor = Objects.requireNonNull(executor, "executor");
+        // Whenever any step-relevant property changes, recompute nextEnabled. The View layer
+        // also calls recomputeNextEnabled() after user actions (file pick, password type, …).
+        vm.sourceProperty().addListener((o, a, b) -> recomputeNextEnabled());
+        vm.sourcePathProperty().addListener((o, a, b) -> recomputeNextEnabled());
+        vm.targetPathProperty().addListener((o, a, b) -> recomputeNextEnabled());
+        vm.selectedAliases().addListener((javafx.collections.ListChangeListener<String>)
+                c -> recomputeNextEnabled());
+        vm.preflightReportProperty().addListener((o, a, b) -> recomputeNextEnabled());
+        vm.currentStepProperty().addListener((o, a, b) -> recomputeNextEnabled());
+    }
+
+    /** Per-step validator. Public so tests can call without spinning a wizard. */
+    public boolean isStepValid(WizardStep step) {
+        return switch (step) {
+            case SOURCE   -> vm.getSource() != null;
+            case CONTENTS -> !vm.selectedAliases().isEmpty();
+            case TARGET   -> !vm.getTargetPath().isBlank()
+                              && vm.getAliasConflictPolicy() != null
+                              && vm.getOverwritePolicy() != null;
+            case PREFLIGHT -> vm.getPreflightReport() != null
+                              && !vm.getPreflightReport().hasBlockers();
+            case EXECUTE  -> !vm.isRunningConvert();
+        };
+    }
+
+    /** Recomputes and sets {@code nextEnabled} for the current step. */
+    public void recomputeNextEnabled() {
+        vm.setNextEnabled(isStepValid(vm.getCurrentStep()));
+    }
+
+    /** Wipes downstream state when the Inspect tab loads a new keystore. */
+    public void resetOnSourceChange() {
+        vm.setTargetPath("");
+        vm.setAliasConflictPolicy(AliasConflictPolicy.RENAME);
+        vm.setOverwritePolicy(OverwritePolicy.FAIL_IF_EXISTS);
+        vm.setPreflightReport(null);
+        vm.setLastResult(null);
+        vm.setCurrentStep(WizardStep.SOURCE);
+        recomputeNextEnabled();
+    }
+
+    /**
+     * Builds a {@link ConversionPlan} from VM state.
+     *
+     * @param sourceEntries map of alias → {@link EntryType} for the currently-selected aliases
+     *                      (already classified by the engine's probe)
+     * @param profile       active FIPS profile (may be {@code null})
+     * @return the plan
+     * @throws IllegalStateException if any required field is missing; the message is UI-safe
+     */
+    public ConversionPlan buildConversionPlan(
+            Map<String, EntryType> sourceEntries, Profile profile) {
+        Objects.requireNonNull(sourceEntries, "sourceEntries");
+        if (vm.getSource() == null) {
+            throw new IllegalStateException("No source keystore loaded.");
+        }
+        if (vm.getSourcePath().isBlank()) {
+            throw new IllegalStateException("Source path is unknown.");
+        }
+        if (vm.getTargetPath().isBlank()) {
+            throw new IllegalStateException("Target path is empty.");
+        }
+        if (vm.selectedAliases().isEmpty()) {
+            throw new IllegalStateException("No entries selected for conversion.");
+        }
+        // For the first cut the wizard passes an empty per-entry password array. The engine's
+        // PasswordProvider prompts per-entry at execution time inside EntryCopy.copy(...).
+        List<String> included = List.copyOf(vm.selectedAliases());
+        List<char[]> entryPasswords = List.of(new char[0]);
+        // Determine target container + encoding from VM-owned bookkeeping. Today the wizard's
+        // Step 3 panel sets source container/encoding via the `Source` snapshot (the VM
+        // currently exposes targetPath + policies only). Task 8 adds `targetContainerType` /
+        // `targetEncoding` properties on the VM and reads them here. Until then, default to
+        // JKS + Binary — overridden in Task 8.
+        KeyStoreContainerType targetContainer = readTargetContainer();
+        ContentEncoding targetEncoding = readTargetEncoding();
+        // Source store password is not carried on LoadedKeyStoreInfo yet — Task 8 adds it.
+        // For the first cut the engine prompts via PasswordProvider at execution time.
+        char[] sourceStorePassword = new char[0];
+        return new ConversionPlan(
+                vm.getSource().containerType(),
+                vm.getSource().encoding(),
+                targetContainer,
+                targetEncoding,
+                vm.getSourcePath(),
+                vm.getTargetPath(),
+                sourceStorePassword,
+                NO_TARGET_PASSWORD.clone(),
+                vm.getAliasConflictPolicy(),
+                vm.getOverwritePolicy(),
+                included,
+                entryPasswords);
+    }
+
+    // Default read helpers — overridden in Task 8 once the VM exposes target container/encoding.
+    private KeyStoreContainerType readTargetContainer() {
+        // Pre-Task-8: targetContainerType is not yet on the VM. The wizard controller is
+        // upgraded in Task 8 to read from the VM; this default keeps the contract obvious.
+        return KeyStoreContainerType.BCFKS;
+    }
+
+    private ContentEncoding readTargetEncoding() {
+        return ContentEncoding.BINARY;
+    }
+
+    /** Step 4 → preflight. Submits the preflight task and wires terminal handlers. Task 4 wires
+     *  the factory. */
+    public void handleEnteredPreflight(Map<String, EntryType> sourceEntries, Profile profile) {
+        vm.setRunningPreflight(true);
+        Runnable r = preflightTaskFactory.get();
+        executor.submit(r);
+    }
+
+    /** Step 5 → convert. Submits the convert task. Task 12 wires the runner. */
+    public void runConvert(Map<String, EntryType> sourceEntries, Profile profile,
+                           PasswordProvider passwords) {
+        ConversionPlan plan = buildConversionPlan(sourceEntries, profile);
+        var task = convertTaskRunner.apply(plan, profile);
+        vm.setRunningConvert(true);
+        executor.submit(task);
+    }
+
+    /** Test seam: assign the preflight task factory. Production wires this in Task 4. */
+    void setPreflightTaskFactoryForTests(Supplier<Runnable> factory) {
+        this.preflightTaskFactory = factory;
+    }
+
+    /** Test seam: assign the convert task runner. Production wires this in Task 12. */
+    void setConvertTaskRunnerForTests(BiFunction<ConversionPlan, Profile,
+            javafx.concurrent.Task<?>> runner) {
+        this.convertTaskRunner = runner;
+    }
+}
