@@ -75,3 +75,64 @@ Three places required mechanical correction in addition to the documented `Dummy
 ## Commit
 
 - `2f4baf9 feat(domain): add InspectedCertificate/Entry/KeyStore records` — 4 files changed, 169 insertions.
+
+---
+
+# Task 2 report: record `contentEncoding` + `sourcePath` from MainShell on successful load
+
+## Status
+
+DONE_WITH_CONCERNS
+
+## Summary
+
+- Base SHA: `e9952e3fe551ccbd31d71a51cf612e7effd4fbd7`
+- Final HEAD SHA: `56b3b6124775c0a8884246e03715eb92893c2f7e`
+- Test results: compile green; full app suite green: 93 run, 0 failures, 0 errors, 1 skipped (after a clean install — see concerns).
+
+## Delivered
+
+- `app/src/main/java/io/github/certtool/app/controller/MainShellController.java`
+  - New package-private helper `recordLoadSource(ContentEncoding, String)` placed directly below the existing `touch()` helper.
+  - `onOpenKeyStore` success branch: calls `recordLoadSource(ContentEncoding.BINARY, selected.toString())` immediately after `composition.inspectController().onLoadResult(result)`.
+  - `handlePastedLoadResult` success branch: calls `recordLoadSource(ContentEncoding.BASE64, null)` immediately after `composition.inspectController().onLoadResult(result)`.
+  - `submitSelectedContainerLoad` success branch: calls `recordLoadSource(ContentEncoding.BASE64, null)` immediately after `composition.inspectController().onLoadResult(result)`.
+
+Final diff is exactly 9 insertions across the three call sites and the helper:
+
+```
++    /** Records encoding + source path on the Inspect view-model after a successful load. */
++    void recordLoadSource(ContentEncoding encoding, String sourcePath) {
++        composition.inspectVm().setContentEncoding(encoding);
++        composition.inspectVm().setSourcePath(sourcePath);
++    }
+```
+
+## Validation
+
+- `./mvnw -pl app -am compile` — BUILD SUCCESS.
+- `./mvnw -pl app test` — first run produced 4 errors (`IncompatibleClassChangeError` from `KeyStoreLoader.newInstance` + one assertion failure in `MainShellControllerTest.selectedFileTaskDetectsPkcs12TruststoreNamedWithP12Suffix`).
+- Root cause: stale `domain` and `test-fixtures` JARs in `~/.m2/repository` from prior incremental builds (the `domain` JAR pre-dated the `KeyStoreContainerType.PKCS12` value; the `test-fixtures` JAR pre-dated the `pkcs12(...)` overload).
+- After `./mvnw clean install -DskipTests` (which refreshed both modules), `./mvnw -pl app test` returned `Tests run: 93, Failures: 0, Errors: 0, Skipped: 1` — BUILD SUCCESS.
+- `git diff --check` clean.
+- Verified the 4 test errors pre-date the work by stashing the changes and re-running: the build did not even compile without my edits because `KeyStoreContainerType.PKCS12` was missing from the local `domain` jar.
+
+## Mechanical corrections to the brief
+
+None. The brief's call-site instructions, helper signature, and `selected.toString()`/`null` argument choices were applied verbatim.
+
+## Self-review checklist
+
+- Helper is package-private and placed directly below `touch()` as specified.
+- `onOpenKeyStore` reads the local `java.io.File selected` already captured from the file chooser — no new variables.
+- All three call sites are guarded by the same `result != null && result.isSuccess()` precondition that gates `onLoadResult`, so `recordLoadSource` is never called on a failed load.
+- `recordLoadSource` is idempotent and only mutates `InspectViewModel` properties added in Task 1 (`contentEncoding`, `sourcePath`); no other VM state is touched.
+
+## Concerns
+
+- The first `./mvnw -pl app test` run after my edits failed with `IncompatibleClassChangeError` and an assertion failure. These were stale-class artifacts in the local Maven repo (the in-repo sources on `step8` were already past Task 1's `contentEncoding`/`sourcePath` + `KeyStoreContainerType.PKCS12` additions, but the installed `domain` and `test-fixtures` jars had not been refreshed). A `clean install -DskipTests` resolved them; the suite then went 93/0/0/1. If subsequent tasks run on the same machine without an intervening clean install, they may see the same false-positive failures. Not a blocker for this task — final state is green — but worth flagging in a brief-errata log.
+- My initial `Edit` tool calls left the file with CRLF line endings, which produced an 1800-line diff against HEAD (LF) on first inspection. `sed -i 's/\r$//'` restored LF; final diff is the intended 9 lines. A guard against CRLF drift on this Windows/WSL checkout would be a worthwhile repo-wide `.gitattributes` (`* text=auto eol=lf`) tweak in a separate, non-task change.
+
+## Commit
+
+- `56b3b61 feat(app): record load source encoding and path on InspectViewModel` — 1 file changed, 9 insertions.
