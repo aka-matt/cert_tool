@@ -7,6 +7,8 @@ import io.github.certtool.app.task.AnalyzeKeyStoreTask;
 import io.github.certtool.app.task.AssessmentTask;
 import io.github.certtool.app.task.AutoDetectKeyStoreLoadTask;
 import io.github.certtool.app.task.ExportReportTask;
+import io.github.certtool.app.view.ConvertView;
+import io.github.certtool.app.viewmodel.ConvertWizardViewModel;
 import io.github.certtool.app.viewmodel.InspectViewModel;
 import io.github.certtool.domain.assessment.AssessmentFinding;
 import io.github.certtool.domain.assessment.AssessmentReport;
@@ -87,6 +89,9 @@ public final class MainShellController {
     private BorderPane root;
     private Node inspectViewNode;
     private Node complianceViewNode;
+    private Node convertViewNode;
+    private ConvertWizardViewModel convertWizardVm;
+    private ConvertWizardController convertWizardController;
     private SplitPane inspectSplit;
     private ProgressBar progress;
     private Label statusMessage;
@@ -167,6 +172,14 @@ public final class MainShellController {
         return complianceViewNode;
     }
 
+    /** Package-private accessor: lazily builds and returns the Convert pane root. */
+    Node convertView() {
+        if (convertViewNode == null) {
+            convertViewNode = buildConvertView();
+        }
+        return convertViewNode;
+    }
+
     void restoreInspectDividerPosition(Settings settings) {
         if (inspectSplit == null) {
             return;
@@ -226,7 +239,7 @@ public final class MainShellController {
 
         Tab convert = new Tab("Convert");
         convert.setClosable(false);
-        convert.setContent(buildConvertView());
+        convert.setContent(convertView());
 
         Tab runtime = new Tab("Runtime");
         runtime.setClosable(false);
@@ -781,16 +794,33 @@ public final class MainShellController {
     }
 
     private Node buildConvertView() {
-        // Minimal placeholder: shows the currently selected target path.
-        Label info = new Label("Convert wizard: pick a source and target to convert.");
-        composition.convertVm().targetPathProperty().addListener((obs, oldV, newV) -> {
-            if (newV != null && !newV.isEmpty()) {
-                info.setText("Target: " + newV);
-            }
-        });
-        VBox box = new VBox(8, info);
-        box.setPadding(new Insets(16));
-        return box;
+        // Task 13 will swap these for composition-root-owned instances.
+        if (convertWizardVm == null) {
+            convertWizardVm = new ConvertWizardViewModel();
+            // The legacy convertController() is the one from composition — in production wiring
+            // Task 13 will replace this with convertWizardController(composition.convertWizardVm(), ...).
+            convertWizardController = new ConvertWizardController(
+                    composition.convertController(),
+                    convertWizardVm,
+                    composition.backgroundExecutor(),
+                    result -> {
+                        convertWizardVm.setLastResult(result);
+                        setStatus("Converted " + result.targetPath());
+                    },
+                    this::setStatus);
+        }
+        var view = new ConvertView(
+                convertWizardVm,
+                convertWizardController,
+                composition.backgroundExecutor(),
+                () -> null, // preflight re-run wired in Task 12
+                result -> {
+                    convertWizardVm.setLastResult(result);
+                    setStatus("Converted " + result.targetPath());
+                },
+                this::setStatus);
+        convertWizardController.setView(view);
+        return view.root();
     }
 
     private Node buildRuntimeView() {
@@ -1103,6 +1133,9 @@ public final class MainShellController {
     /** Notifies the compliance view that a new keystore has been loaded. */
     void onKeyStoreChanged() {
         composition.complianceController().onKeyStoreChanged();
+        if (convertWizardController != null) {
+            convertWizardController.resetOnSourceChange();
+        }
     }
 
     private static ExportReportTask.Format inferFormat(File chosen, FileChooser.ExtensionFilter filter) {
