@@ -2,6 +2,7 @@ package io.github.certtool.app;
 
 import io.github.certtool.app.controller.ComplianceController;
 import io.github.certtool.app.controller.ConvertController;
+import io.github.certtool.app.controller.ConvertWizardController;
 import io.github.certtool.app.controller.InspectController;
 import io.github.certtool.app.controller.RuntimeController;
 import io.github.certtool.app.settings.SettingsService;
@@ -17,6 +18,7 @@ import io.github.certtool.app.theme.AtlantaFxThemeService;
 import io.github.certtool.app.theme.ThemeService;
 import io.github.certtool.app.viewmodel.ComplianceViewModel;
 import io.github.certtool.app.viewmodel.ConvertViewModel;
+import io.github.certtool.app.viewmodel.ConvertWizardViewModel;
 import io.github.certtool.app.viewmodel.InspectViewModel;
 import io.github.certtool.app.viewmodel.RuntimeViewModel;
 import io.github.certtool.compliance.core.AssessmentEngine;
@@ -65,6 +67,9 @@ public final class AppComposition {
     private final ConvertController convertController;
     private final RuntimeController runtimeController;
 
+    private final ConvertWizardViewModel convertWizardVm;
+    private final ConvertWizardController convertWizardController;
+
     private final RuleRegistry ruleRegistry;
     private volatile PasswordProvider activePasswordProvider;
 
@@ -85,6 +90,8 @@ public final class AppComposition {
         this.complianceController = Objects.requireNonNull(b.complianceController, "complianceController");
         this.convertController = Objects.requireNonNull(b.convertController, "convertController");
         this.runtimeController = Objects.requireNonNull(b.runtimeController, "runtimeController");
+        this.convertWizardVm = Objects.requireNonNull(b.convertWizardVm, "convertWizardVm");
+        this.convertWizardController = Objects.requireNonNull(b.convertWizardController, "convertWizardController");
         this.activePasswordProvider = passwordProviderSource.get();
     }
 
@@ -112,8 +119,19 @@ public final class AppComposition {
         } catch (IOException e) {
             throw new UncheckedIOException("Failed to load built-in compliance profiles", e);
         }
-        ConvertViewModel convertVm = new ConvertViewModel();
+        ConvertWizardViewModel convertWizardVm = new ConvertWizardViewModel();
         RuntimeViewModel runtimeVm = new RuntimeViewModel();
+
+        // The shared ConvertController drives both the legacy convertVm (which the Builder
+        // still holds for binary-compatibility with any code that calls convertVm()) and the
+        // wizard VM (ConvertWizardViewModel IS-A ConvertViewModel).
+        ConvertController sharedConvertController = new ConvertController(convertWizardVm);
+        ConvertWizardController convertWizardController = new ConvertWizardController(
+                sharedConvertController,
+                convertWizardVm,
+                exec,
+                result -> { /* status set by view */ },
+                msg -> { /* status set by view */ });
 
         return new Builder()
                 .settingsService(settings)
@@ -127,12 +145,14 @@ public final class AppComposition {
                 .ruleRegistry(DefaultRules.registry())
                 .inspectVm(inspectVm)
                 .complianceVm(complianceVm)
-                .convertVm(convertVm)
+                .convertVm(convertWizardVm)
                 .runtimeVm(runtimeVm)
                 .inspectController(new InspectController(inspectVm))
                 .complianceController(new ComplianceController(complianceVm))
-                .convertController(new ConvertController(convertVm))
+                .convertController(sharedConvertController)
                 .runtimeController(new RuntimeController(runtimeVm))
+                .convertWizardVm(convertWizardVm)
+                .convertWizardController(convertWizardController)
                 .build();
     }
 
@@ -198,6 +218,8 @@ public final class AppComposition {
     public ComplianceController complianceController() { return complianceController; }
     public ConvertController convertController() { return convertController; }
     public RuntimeController runtimeController() { return runtimeController; }
+    public ConvertWizardViewModel convertWizardVm() { return convertWizardVm; }
+    public ConvertWizardController convertWizardController() { return convertWizardController; }
 
     /** Builder. */
     public static final class Builder {
@@ -217,6 +239,8 @@ public final class AppComposition {
         private ComplianceController complianceController;
         private ConvertController convertController;
         private RuntimeController runtimeController;
+        private ConvertWizardViewModel convertWizardVm;
+        private ConvertWizardController convertWizardController;
 
         public Builder settingsService(SettingsService v) { this.settingsService = v; return this; }
         public Builder themeService(ThemeService v) { this.themeService = v; return this; }
@@ -237,6 +261,8 @@ public final class AppComposition {
         public Builder complianceController(ComplianceController v) { this.complianceController = v; return this; }
         public Builder convertController(ConvertController v) { this.convertController = v; return this; }
         public Builder runtimeController(RuntimeController v) { this.runtimeController = v; return this; }
+        public Builder convertWizardVm(ConvertWizardViewModel v) { this.convertWizardVm = v; return this; }
+        public Builder convertWizardController(ConvertWizardController v) { this.convertWizardController = v; return this; }
 
         public AppComposition build() { return new AppComposition(this); }
     }

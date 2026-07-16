@@ -803,33 +803,52 @@ public final class MainShellController {
     }
 
     private Node buildConvertView() {
-        // Task 13 will swap these for composition-root-owned instances.
-        if (convertWizardVm == null) {
-            convertWizardVm = new ConvertWizardViewModel();
-            // The legacy convertController() is the one from composition — in production wiring
-            // Task 13 will replace this with convertWizardController(composition.convertWizardVm(), ...).
-            convertWizardController = new ConvertWizardController(
-                    composition.convertController(),
-                    convertWizardVm,
+        if (convertViewNode == null) {
+            // Always reach through composition for the wizard VM/controller.
+            // First-access may happen before composition is fully built in tests — guard.
+            final ConvertWizardViewModel fromCompVm = composition.convertWizardVm();
+            final ConvertWizardController fromCompWizard = composition.convertWizardController();
+
+            if (fromCompVm == null && fromCompWizard == null) {
+                // Both null — test composition doesn't supply them; build locally.
+                convertWizardVm = new ConvertWizardViewModel();
+                convertWizardController = new ConvertWizardController(
+                        composition.convertController(),
+                        convertWizardVm,
+                        composition.backgroundExecutor(),
+                        result -> setStatus("Converted " + result.targetPath()),
+                        this::setStatus);
+            } else if (fromCompVm != null && fromCompWizard != null) {
+                // Both provided — use composition instances.
+                convertWizardVm = fromCompVm;
+                convertWizardController = fromCompWizard;
+            } else {
+                // Mixed — only one supplied. Recover by building the missing piece locally,
+                // using whatever the composition already provided.
+                if (fromCompVm == null) {
+                    convertWizardVm = new ConvertWizardViewModel();
+                }
+                if (fromCompWizard == null) {
+                    convertWizardController = new ConvertWizardController(
+                            composition.convertController(),
+                            convertWizardVm,
+                            composition.backgroundExecutor(),
+                            result -> setStatus("Converted " + result.targetPath()),
+                            this::setStatus);
+                }
+            }
+            var view = new ConvertView(convertWizardVm, convertWizardController,
                     composition.backgroundExecutor(),
+                    () -> null,
                     result -> {
                         convertWizardVm.setLastResult(result);
                         setStatus("Converted " + result.targetPath());
                     },
                     this::setStatus);
+            convertWizardController.setView(view);
+            convertViewNode = view.root();
         }
-        var view = new ConvertView(
-                convertWizardVm,
-                convertWizardController,
-                composition.backgroundExecutor(),
-                () -> null, // preflight re-run wired in Task 12
-                result -> {
-                    convertWizardVm.setLastResult(result);
-                    setStatus("Converted " + result.targetPath());
-                },
-                this::setStatus);
-        convertWizardController.setView(view);
-        return view.root();
+        return convertViewNode;
     }
 
     private Node buildRuntimeView() {
@@ -1142,7 +1161,12 @@ public final class MainShellController {
     /** Notifies the compliance view that a new keystore has been loaded. */
     void onKeyStoreChanged() {
         composition.complianceController().onKeyStoreChanged();
-        if (convertWizardController != null) {
+        // Use the composition's controller if available (production + upgraded test composition);
+        // fall back to the locally-constructed one only when buildConvertView() built it directly.
+        var wizard = composition.convertWizardController();
+        if (wizard != null) {
+            wizard.resetOnSourceChange();
+        } else if (convertWizardController != null) {
             convertWizardController.resetOnSourceChange();
         }
     }

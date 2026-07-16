@@ -646,6 +646,40 @@ class MainShellControllerTest {
         assertThat(convertNowRunning.isDisabled()).isTrue();
     }
 
+    @Test
+    @DisplayName("composition exposes convertWizardVm and convertWizardController")
+    void compositionExposesConvertWizardVmAndController() {
+        AppComposition c = AppComposition.defaultComposition();
+        assertThat(c.convertWizardVm()).isNotNull();
+        assertThat(c.convertWizardController()).isNotNull();
+    }
+
+    @Test
+    @DisplayName("convertView returns a non-null Node containing Back, Next, and Close buttons")
+    void convertViewReturnsNonNullAndIncludesBackNextClose() throws Exception {
+        MainShellController controller =
+                new MainShellController(composition(new RecordingExecutor()), null);
+        Node view = controller.convertView();
+        assertThat(view).isNotNull();
+        assertThat(findButton(view, "← Back")).isNotNull();
+        assertThat(findButton(view, "Next →")).isNotNull();
+        assertThat(findButton(view, "Close")).isNotNull();
+    }
+
+    @Test
+    @DisplayName("onKeyStoreChanged resets the convert wizard to SOURCE step and clears target path")
+    void onKeyStoreChangedResetsConvertWizardToSource() throws Exception {
+        AppComposition comp = composition(new RecordingExecutor());
+        comp.convertWizardVm().setTargetPath("/tmp/something.bcfks");
+        comp.convertWizardVm().setCurrentStep(
+                io.github.certtool.app.viewmodel.ConvertWizardViewModel.WizardStep.TARGET);
+        MainShellController controller = new MainShellController(comp, null);
+        controller.onKeyStoreChanged();
+        assertThat(comp.convertWizardVm().getCurrentStep())
+                .isEqualTo(io.github.certtool.app.viewmodel.ConvertWizardViewModel.WizardStep.SOURCE);
+        assertThat(comp.convertWizardVm().getTargetPath()).isEmpty();
+    }
+
     private static void runOnFxThreadAndWait(Runnable action) throws Exception {
         java.util.concurrent.CountDownLatch completed = new java.util.concurrent.CountDownLatch(1);
         java.util.concurrent.atomic.AtomicReference<Throwable> failure =
@@ -681,8 +715,15 @@ class MainShellControllerTest {
     private static AppComposition composition(RecordingExecutor executor) throws Exception {
         InspectViewModel inspectVm = new InspectViewModel();
         ComplianceViewModel complianceVm = new ComplianceViewModel();
-        ConvertViewModel convertVm = new ConvertViewModel();
+        ConvertWizardViewModel convertWizardVm = new ConvertWizardViewModel();
         RuntimeViewModel runtimeVm = new RuntimeViewModel();
+        ConvertController sharedConvertController = new ConvertController(convertWizardVm);
+        ConvertWizardController convertWizardController = new ConvertWizardController(
+                sharedConvertController,
+                convertWizardVm,
+                executor,
+                result -> {},
+                msg -> {});
         return new AppComposition.Builder()
                 .settingsService(new SettingsService(Path.of("target", "test-settings.json")))
                 .themeService(new NoOpThemeService())
@@ -695,12 +736,14 @@ class MainShellControllerTest {
                 .ruleRegistry(DefaultRules.registry())
                 .inspectVm(inspectVm)
                 .complianceVm(complianceVm)
-                .convertVm(convertVm)
+                .convertVm(convertWizardVm)
                 .runtimeVm(runtimeVm)
                 .inspectController(new InspectController(inspectVm))
                 .complianceController(new ComplianceController(complianceVm))
-                .convertController(new ConvertController(convertVm))
+                .convertController(sharedConvertController)
                 .runtimeController(new RuntimeController(runtimeVm))
+                .convertWizardVm(convertWizardVm)
+                .convertWizardController(convertWizardController)
                 .build();
     }
 
