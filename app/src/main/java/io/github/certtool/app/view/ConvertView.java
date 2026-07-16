@@ -4,28 +4,41 @@ import io.github.certtool.app.controller.ConvertWizardController;
 import io.github.certtool.app.viewmodel.ConvertWizardViewModel;
 import io.github.certtool.app.viewmodel.ConvertWizardViewModel.WizardStep;
 import io.github.certtool.conversion.domain.result.ConversionResult;
+import io.github.certtool.domain.keystore.ContentEncoding;
+import io.github.certtool.domain.keystore.KeyStoreContainerType;
+import io.github.certtool.conversion.domain.plan.AliasConflictPolicy;
+import io.github.certtool.conversion.domain.plan.OverwritePolicy;
 import java.util.EnumMap;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.ExecutorService;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
+import javafx.beans.property.BooleanProperty;
 import javafx.beans.property.SimpleBooleanProperty;
+import javafx.beans.property.SimpleObjectProperty;
 import javafx.beans.property.SimpleStringProperty;
 import javafx.beans.property.StringProperty;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.Node;
 import javafx.scene.control.Button;
+import javafx.scene.control.CheckBox;
+import javafx.scene.control.ComboBox;
 import javafx.scene.control.Label;
+import javafx.scene.control.PasswordField;
+import javafx.scene.control.TextField;
 import javafx.scene.control.cell.CheckBoxTableCell;
 import javafx.scene.control.TableColumn;
 import javafx.scene.control.TableView;
 import javafx.scene.layout.BorderPane;
+import javafx.scene.layout.GridPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.Region;
 import javafx.scene.layout.VBox;
+import javafx.stage.FileChooser;
+import java.io.File;
 
 /**
  * Top-level UI builder for the Convert wizard. Builds a {@link BorderPane} with:
@@ -161,7 +174,8 @@ public final class ConvertView {
         Node panel = switch (step) {
             case SOURCE -> sourcePanel();
             case CONTENTS -> contentsPanel();
-            default -> stepCache.get(step); // Tasks 8–10 register themselves
+            case TARGET -> targetPanel();
+            default -> stepCache.get(step); // Tasks 9–10 register themselves
         };
         if (panel == null) {
             panel = buildCenterPlaceholder();
@@ -289,6 +303,130 @@ public final class ConvertView {
                         .filter(r -> r.include.get())
                         .map(r -> r.alias.get())
                         .toList());
+    }
+
+    /** Public so the controller can request a re-render; first-call builds and caches. */
+    public Node targetPanel() {
+        return stepCache.computeIfAbsent(WizardStep.TARGET, step -> buildTargetPanel());
+    }
+
+    private Node buildTargetPanel() {
+        VBox box = new VBox(8);
+        box.setPadding(new Insets(16));
+        box.setId("convert-step-target");
+
+        // Target container combo
+        ComboBox<KeyStoreContainerType> containerCombo = new ComboBox<>();
+        containerCombo.getItems().addAll(KeyStoreContainerType.JKS,
+                KeyStoreContainerType.PKCS12, KeyStoreContainerType.BCFKS);
+        containerCombo.valueProperty().bindBidirectional(vm.targetContainerTypeProperty());
+
+        // Target encoding combo
+        ComboBox<ContentEncoding> encodingCombo = new ComboBox<>();
+        encodingCombo.getItems().addAll(ContentEncoding.BINARY, ContentEncoding.BASE64);
+        encodingCombo.valueProperty().bindBidirectional(vm.targetEncodingProperty());
+
+        // Target path with Browse
+        TextField pathField = new TextField();
+        pathField.textProperty().bindBidirectional(vm.targetPathProperty());
+        Button browse = new Button("Browse…");
+        browse.setOnAction(e -> {
+            FileChooser fc = new FileChooser();
+            fc.setTitle("Choose target keystore");
+            fc.setInitialFileName(suggestTargetFilename(vm.getTargetPath()));
+            File chosen = fc.showSaveDialog(
+                    root.getScene() == null ? null : root.getScene().getWindow());
+            if (chosen != null) {
+                vm.setTargetPath(chosen.toString());
+            }
+        });
+
+        // Target store password
+        PasswordField targetPassword = new PasswordField();
+        targetPassword.setId("convert-target-password");
+        // Push password changes to the wizard controller.
+        targetPassword.textProperty().addListener((o, a, b) ->
+                wizard.setTargetStorePassword(targetPassword.getText().toCharArray()));
+
+        // Show/hide password toggle
+        CheckBox showTargetPwd = new CheckBox("Show password");
+        BooleanProperty showPwd = new SimpleBooleanProperty(false);
+        TextField targetPasswordPlain = new TextField();
+        targetPasswordPlain.textProperty().bindBidirectional(targetPassword.textProperty());
+        showPwd.addListener((o, a, b) -> {
+            if (b) {
+                targetPassword.textProperty().unbind();
+                targetPassword.setText(targetPasswordPlain.getText());
+                targetPasswordPlain.textProperty().bindBidirectional(targetPassword.textProperty());
+            } else {
+                targetPasswordPlain.textProperty().unbind();
+                targetPassword.textProperty().bindBidirectional(targetPasswordPlain.textProperty());
+            }
+        });
+        showTargetPwd.selectedProperty().bindBidirectional(showPwd);
+
+        // Base64 options
+        ComboBox<Integer> lineWidthCombo = new ComboBox<>();
+        lineWidthCombo.getItems().addAll(32, 48, 64, 76, 100);
+        lineWidthCombo.setValue(vm.getTargetBase64Options().lineWidth());
+        lineWidthCombo.valueProperty().addListener((o, a, b) -> {
+            int w = (b == null) ? 64 : b;
+            vm.setTargetBase64Options(new ConvertWizardViewModel.Base64Options(
+                    w, vm.getTargetBase64Options().wrapHeaders()));
+        });
+        CheckBox wrapHeaders = new CheckBox("Wrap with PEM-style BEGIN/END headers");
+        wrapHeaders.setSelected(vm.getTargetBase64Options().wrapHeaders());
+        wrapHeaders.selectedProperty().addListener((o, a, b) -> {
+            int w = vm.getTargetBase64Options().lineWidth();
+            vm.setTargetBase64Options(new ConvertWizardViewModel.Base64Options(w, b));
+        });
+        lineWidthCombo.disableProperty().bind(
+                javafx.beans.binding.Bindings.createBooleanBinding(
+                        () -> vm.getTargetEncoding() != ContentEncoding.BASE64,
+                        vm.targetEncodingProperty()));
+        wrapHeaders.disableProperty().bind(lineWidthCombo.disableProperty());
+
+        // Alias conflict + overwrite policies
+        ComboBox<AliasConflictPolicy> aliasPolicyCombo = new ComboBox<>();
+        aliasPolicyCombo.getItems().addAll(AliasConflictPolicy.values());
+        aliasPolicyCombo.valueProperty().bindBidirectional(vm.aliasConflictPolicyProperty());
+
+        ComboBox<OverwritePolicy> overwriteCombo = new ComboBox<>();
+        overwriteCombo.getItems().addAll(OverwritePolicy.values());
+        overwriteCombo.valueProperty().bindBidirectional(vm.overwritePolicyProperty());
+
+        GridPane grid = new GridPane();
+        grid.setHgap(8);
+        grid.setVgap(8);
+        grid.add(new Label("Target container:"), 0, 0);
+        grid.add(containerCombo, 1, 0);
+        grid.add(new Label("Target encoding:"), 0, 1);
+        grid.add(encodingCombo, 1, 1);
+        grid.add(new Label("Target path:"), 0, 2);
+        grid.add(pathField, 1, 2);
+        grid.add(browse, 2, 2);
+        grid.add(new Label("Target store password:"), 0, 3);
+        grid.add(targetPassword, 1, 3);
+        grid.add(showTargetPwd, 1, 4);
+        grid.add(new Label("Base64 line width:"), 0, 5);
+        grid.add(lineWidthCombo, 1, 5);
+        grid.add(wrapHeaders, 1, 6);
+        grid.add(new Label("Alias conflict policy:"), 0, 7);
+        grid.add(aliasPolicyCombo, 1, 7);
+        grid.add(new Label("Overwrite policy:"), 0, 8);
+        grid.add(overwriteCombo, 1, 8);
+
+        box.getChildren().addAll(new Label("Step 3 — Target"), grid);
+        registerStep(WizardStep.TARGET, box);
+        return box;
+    }
+
+    private String suggestTargetFilename(String currentPath) {
+        if (currentPath != null && !currentPath.isBlank()) {
+            java.nio.file.Path p = java.nio.file.Paths.get(currentPath);
+            return p.getFileName().toString();
+        }
+        return "target.keystore";
     }
 
     /** Local row type for the contents table. Public to keep tests honest. */

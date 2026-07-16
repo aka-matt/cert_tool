@@ -20,6 +20,7 @@ import javafx.application.Platform;
 import javafx.scene.Node;
 import javafx.scene.control.Button;
 import javafx.scene.control.Label;
+import javafx.scene.control.PasswordField;
 import javafx.scene.control.TableView;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -36,6 +37,8 @@ class ConvertViewBindingTest {
         vm.setAliasConflictPolicy(AliasConflictPolicy.RENAME);
         vm.setOverwritePolicy(OverwritePolicy.FAIL_IF_EXISTS);
         vm.setTargetPath("/tmp/target.bcfks");
+        // BCFKS requires a non-empty target password — set it so isStepValid(TARGET) passes.
+        vm.setTargetContainerType(KeyStoreContainerType.BCFKS);
         return vm;
     }
 
@@ -150,5 +153,26 @@ class ConvertViewBindingTest {
         // "Select all" button exists
         Button selectAll = findButton(root, "Select all");
         assertThat(selectAll).isNotNull();
+    }
+
+    @Test
+    void targetPanelContainsContainerEncodingPathAndPasswordFields() {
+        var vm = vm();
+        var wizard = wiz(vm);
+        var view = new ConvertView(vm, wizard, Executors.newSingleThreadExecutor(),
+                () -> null, r -> {}, s -> {});
+        vm.setCurrentStep(WizardStep.TARGET);
+        Node root = view.root();
+        // Combo boxes for target container + encoding; PasswordField for store password
+        assertThat(root.lookupAll(".combo-box")).isNotEmpty();
+        assertThat(root.lookupAll(".password-field")).isNotEmpty();
+        assertThat(findButton(root, "Browse…")).isNotNull();
+        Label lineWidthLabel = findLabelByTextStartsWith(root, "Base64 line width");
+        assertThat(lineWidthLabel).isNotNull();
+        // Spec pre-flight finding #4: password field pushes to controller.
+        PasswordField pwdField = (PasswordField) root.lookup("#convert-target-password");
+        assertThat(pwdField).isNotNull();
+        pwdField.setText("secret");
+        assertThat(wizard.getTargetStorePassword()).isNotEmpty();
     }
 }

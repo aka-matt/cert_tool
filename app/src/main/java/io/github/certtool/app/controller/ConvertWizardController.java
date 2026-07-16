@@ -17,6 +17,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BiFunction;
 import java.util.function.Consumer;
 import javafx.scene.Node;
@@ -38,6 +39,9 @@ public final class ConvertWizardController {
 
     /** Default target store password: empty array — overridden in Task 8 once the user types. */
     private static final char[] NO_TARGET_PASSWORD = new char[0];
+
+    private final AtomicReference<char[]> targetPasswordRef =
+            new AtomicReference<>(new char[0]);
 
     private final ConvertController convertController;
     private final ConvertWizardViewModel vm;
@@ -94,7 +98,9 @@ public final class ConvertWizardController {
             case CONTENTS -> !vm.selectedAliases().isEmpty();
             case TARGET   -> !vm.getTargetPath().isBlank()
                               && vm.getAliasConflictPolicy() != null
-                              && vm.getOverwritePolicy() != null;
+                              && vm.getOverwritePolicy() != null
+                              && !(vm.getTargetContainerType() == KeyStoreContainerType.BCFKS
+                                   && targetPasswordRef.get().length == 0);
             case PREFLIGHT -> vm.getPreflightReport() != null
                               && !vm.getPreflightReport().hasBlockers();
             case EXECUTE  -> !vm.isRunningConvert();
@@ -115,6 +121,24 @@ public final class ConvertWizardController {
         vm.setLastResult(null);
         vm.setCurrentStep(WizardStep.SOURCE);
         recomputeNextEnabled();
+    }
+
+    /**
+     * Receives the target store password from the Target step view.
+     * Called by the view whenever the password field changes.
+     */
+    public void setTargetStorePassword(char[] pwd) {
+        if (pwd == null || pwd.length == 0) {
+            targetPasswordRef.set(new char[0]);
+            return;
+        }
+        targetPasswordRef.set(pwd.clone());
+        recomputeNextEnabled();
+    }
+
+    public char[] getTargetStorePassword() {
+        char[] p = targetPasswordRef.get();
+        return p == null ? new char[0] : p.clone();
     }
 
     /**
@@ -159,7 +183,7 @@ public final class ConvertWizardController {
                 vm.getSourcePath(),
                 vm.getTargetPath(),
                 sourceStorePassword,
-                NO_TARGET_PASSWORD.clone(),
+                getTargetStorePassword(),
                 vm.getAliasConflictPolicy(),
                 vm.getOverwritePolicy(),
                 included,
