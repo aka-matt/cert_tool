@@ -120,6 +120,41 @@ class EntryCopyTest {
     }
 
     @Test
+    @DisplayName("JKS → BCFKS: store-password-only entry password still copies private key")
+    void jksToBcfksWithEmptyPerEntryPasswordFallsBackToStorePassword() throws Exception {
+        // Reproduces the wizard path: the user supplies only the source STORE password; no
+        // per-entry override is set, so plan.entryPasswords() contains an empty char[].
+        // JKS uses store==entry convention; EntryCopy must use the store password to recover the
+        // private key for type detection AND for the actual setKeyEntry call.
+        KeyPair kp = CertificateGenerator.rsaKeyPair(2048);
+        X509Certificate leaf = CertificateGenerator.selfSigned(
+                new X500Principal("CN=test"), kp, "SHA256withRSA", Duration.ofDays(30));
+
+        char[] sharedPwd = "secret".toCharArray();
+        KeyStore source = KeyStoreGenerator.jksBuilder(sharedPwd)
+                .addPrivateKey("k", kp.getPrivate(), sharedPwd, java.util.List.of(leaf))
+                .build();
+
+        char[] tgtPwd = "tgt".toCharArray();
+        KeyStore target = newTarget(KeyStoreContainerType.BCFKS, tgtPwd);
+
+        ConversionPlan p = plan(
+                KeyStoreContainerType.JKS, KeyStoreContainerType.BCFKS,
+                sharedPwd, tgtPwd,
+                List.of("k"),
+                List.of(new char[0])); // wizard path: empty per-entry override
+        EntryCopy.CopyResult result = EntryCopy.copy(
+                source, target, p,
+                new FixedPasswordProvider(sharedPwd, Map.of()), List.of("k"));
+
+        assertThat(Collections.list(target.aliases())).containsExactly("k");
+        Key restoredKey = target.getKey("k", tgtPwd.clone());
+        assertThat(restoredKey.getEncoded()).isEqualTo(kp.getPrivate().getEncoded());
+        assertThat(result.copied()).isEqualTo(1);
+        assertThat(result.skipped()).isEqualTo(0);
+    }
+
+    @Test
     @DisplayName("Included aliases only: excluded entries are not copied")
     void excludedEntriesNotCopied() throws Exception {
         X509Certificate cert = cert();

@@ -130,6 +130,11 @@ public final class KeystoreConversion {
 
     private static Map<String, EntryType> probeEntryTypes(KeyStore source) throws GeneralSecurityException {
         Map<String, EntryType> out = new HashMap<>();
+        // Probes key entries with an empty password. This works for BCFKS and PKCS12 (which
+        // accept empty passwords) but JKS will throw UnrecoverableKeyException on private-key
+        // entries — those get classified as UNKNOWN. Callers that need accurate classification
+        // for JKS private keys must pre-classify (e.g. from KeyStoreLoadResult) and pass those
+        // entries via the wizard rather than relying on this probe.
         Enumeration<String> aliases = source.aliases();
         while (aliases.hasMoreElements()) {
             String a = aliases.nextElement();

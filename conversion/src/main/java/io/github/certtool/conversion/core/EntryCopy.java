@@ -69,15 +69,26 @@ public final class EntryCopy {
 
         // Build a parallel map so we know the source entry password per alias. The plan's
         // entryPasswords list is optional and may be shorter than includedAliases — we treat any
-        // missing entry as "no override, ask the password provider".
+        // missing entry as "no override, ask the password provider". When the per-entry value is
+        // empty or missing, fall back to the source store password: JKS uses store==entry
+        // convention by default, and probing a JKS private key with an empty password throws
+        // UnrecoverableKeyException, which would otherwise mis-classify the entry as UNKNOWN and
+        // silently skip the copy.
         Map<String, char[]> entryPwds = new HashMap<>();
         List<String> aliases = plan.includedAliases();
         List<char[]> planEntryPwds = plan.entryPasswords();
-        for (int i = 0; i < aliases.size() && i < planEntryPwds.size(); i++) {
-            char[] p = planEntryPwds.get(i);
-            if (p != null) {
-                entryPwds.put(aliases.get(i), p);
+        char[] storeFallback = plan.sourceStorePassword().clone();
+        try {
+            for (int i = 0; i < aliases.size(); i++) {
+                char[] fromPlan = i < planEntryPwds.size() ? planEntryPwds.get(i) : null;
+                if (fromPlan != null && fromPlan.length > 0) {
+                    entryPwds.put(aliases.get(i), fromPlan);
+                } else {
+                    entryPwds.put(aliases.get(i), storeFallback.clone());
+                }
             }
+        } finally {
+            Arrays.fill(storeFallback, '\0');
         }
 
         int copied = 0;
