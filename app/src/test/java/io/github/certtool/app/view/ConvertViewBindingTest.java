@@ -20,6 +20,7 @@ import javafx.application.Platform;
 import javafx.scene.Node;
 import javafx.scene.control.Button;
 import javafx.scene.control.Label;
+import javafx.scene.control.TableView;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
@@ -131,5 +132,23 @@ class ConvertViewBindingTest {
             }
         }
         return null;
+    }
+
+    @Test
+    void contentsPanelRendersTableAndSelectionBanner() {
+        var vm = vm();
+        var info = new LoadedKeyStoreInfo(KeyStoreContainerType.JKS, ContentEncoding.BINARY,
+                "/tmp/source.jks", 1024L, true, List.of("alpha", "beta", "gamma"));
+        new ConvertController(vm).onSourceSelected(info);
+        var view = new ConvertView(vm, wiz(vm), Executors.newSingleThreadExecutor(),
+                () -> null, r -> {}, s -> {});
+        vm.setCurrentStep(WizardStep.CONTENTS);
+        Node root = view.root();
+        // Banner "X of Y entries selected" appears on CONTENTS panel
+        Label banner = findLabelByTextStartsWith(root, "3 of 3 entries selected");
+        assertThat(banner).isNotNull();
+        // "Select all" button exists
+        Button selectAll = findButton(root, "Select all");
+        assertThat(selectAll).isNotNull();
     }
 }

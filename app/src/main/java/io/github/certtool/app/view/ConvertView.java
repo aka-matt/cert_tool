@@ -10,11 +10,17 @@ import java.util.Objects;
 import java.util.concurrent.ExecutorService;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
+import javafx.beans.property.SimpleBooleanProperty;
+import javafx.beans.property.SimpleStringProperty;
+import javafx.beans.property.StringProperty;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.Node;
 import javafx.scene.control.Button;
 import javafx.scene.control.Label;
+import javafx.scene.control.cell.CheckBoxTableCell;
+import javafx.scene.control.TableColumn;
+import javafx.scene.control.TableView;
 import javafx.scene.layout.BorderPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
@@ -154,7 +160,8 @@ public final class ConvertView {
     public void showStep(WizardStep step) {
         Node panel = switch (step) {
             case SOURCE -> sourcePanel();
-            default -> stepCache.get(step); // Tasks 7–10 register themselves
+            case CONTENTS -> contentsPanel();
+            default -> stepCache.get(step); // Tasks 8–10 register themselves
         };
         if (panel == null) {
             panel = buildCenterPlaceholder();
@@ -209,5 +216,91 @@ public final class ConvertView {
         // Register the panel for showStep() to swap it in:
         registerStep(WizardStep.SOURCE, box);
         return box;
+    }
+
+    /** Public so the controller can request a re-render; first-call builds and caches. */
+    public Node contentsPanel() {
+        return stepCache.computeIfAbsent(WizardStep.CONTENTS, step -> buildContentsPanel());
+    }
+
+    private Node buildContentsPanel() {
+        VBox box = new VBox(8);
+        box.setPadding(new Insets(16));
+        box.setId("convert-step-contents");
+
+        TableView<EntryRow> table = new TableView<>();
+        TableColumn<EntryRow, Boolean> includeCol = new TableColumn<>("Include");
+        includeCol.setCellValueFactory(c -> c.getValue().include);
+        includeCol.setCellFactory(CheckBoxTableCell.forTableColumn(includeCol));
+        includeCol.setEditable(true);
+
+        TableColumn<EntryRow, String> aliasCol = new TableColumn<>("Alias");
+        aliasCol.setCellValueFactory(c -> c.getValue().alias);
+
+        TableColumn<EntryRow, String> typeCol = new TableColumn<>("Type");
+        typeCol.setCellValueFactory(c -> c.getValue().type);
+
+        table.getColumns().addAll(includeCol, aliasCol, typeCol);
+        table.setEditable(true);
+        table.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY);
+
+        for (String alias : vm.sourceAliases()) {
+            table.getItems().add(new EntryRow(alias, "<unknown>", true));
+        }
+
+        Button selectAll = new Button("Select all");
+        selectAll.setOnAction(e -> {
+            for (EntryRow r : table.getItems()) {
+                r.include.set(true);
+            }
+            rebuildSelectedAliases(table);
+        });
+        Button deselectAll = new Button("Deselect all");
+        deselectAll.setOnAction(e -> {
+            for (EntryRow r : table.getItems()) {
+                r.include.set(false);
+            }
+            rebuildSelectedAliases(table);
+        });
+        Button invert = new Button("Invert");
+        invert.setOnAction(e -> {
+            for (EntryRow r : table.getItems()) {
+                r.include.set(!r.include.get());
+            }
+            rebuildSelectedAliases(table);
+        });
+        HBox actions = new HBox(8, selectAll, deselectAll, invert);
+
+        Label banner = new Label();
+        banner.textProperty().bind(javafx.beans.binding.Bindings.createStringBinding(() -> {
+            long sel = table.getItems().stream().filter(r -> r.include.get()).count();
+            return sel + " of " + table.getItems().size() + " entries selected.";
+        }, vm.selectedAliases()));
+        banner.setId("convert-step-contents-banner");
+
+        box.getChildren().addAll(new Label("Step 2 — Contents"), actions, table, banner);
+        registerStep(WizardStep.CONTENTS, box);
+        return box;
+    }
+
+    private void rebuildSelectedAliases(TableView<EntryRow> table) {
+        vm.selectedAliases().setAll(
+                table.getItems().stream()
+                        .filter(r -> r.include.get())
+                        .map(r -> r.alias.get())
+                        .toList());
+    }
+
+    /** Local row type for the contents table. Public to keep tests honest. */
+    public static final class EntryRow {
+        public final StringProperty alias = new SimpleStringProperty();
+        public final StringProperty type = new SimpleStringProperty();
+        public final javafx.beans.property.BooleanProperty include = new SimpleBooleanProperty();
+
+        public EntryRow(String alias, String type, boolean include) {
+            this.alias.set(alias);
+            this.type.set(type);
+            this.include.set(include);
+        }
     }
 }

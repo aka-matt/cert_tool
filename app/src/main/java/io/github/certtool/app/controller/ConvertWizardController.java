@@ -145,13 +145,9 @@ public final class ConvertWizardController {
         // PasswordProvider prompts per-entry at execution time inside EntryCopy.copy(...).
         List<String> included = List.copyOf(vm.selectedAliases());
         List<char[]> entryPasswords = List.of(new char[0]);
-        // Determine target container + encoding from VM-owned bookkeeping. Today the wizard's
-        // Step 3 panel sets source container/encoding via the `Source` snapshot (the VM
-        // currently exposes targetPath + policies only). Task 8 adds `targetContainerType` /
-        // `targetEncoding` properties on the VM and reads them here. Until then, default to
-        // JKS + Binary — overridden in Task 8.
-        KeyStoreContainerType targetContainer = readTargetContainer();
-        ContentEncoding targetEncoding = readTargetEncoding();
+        // Determine target container + encoding from VM-owned bookkeeping.
+        KeyStoreContainerType targetContainer = vm.getTargetContainerType();
+        ContentEncoding targetEncoding = vm.getTargetEncoding();
         // Source store password is not carried on LoadedKeyStoreInfo yet — Task 8 adds it.
         // For the first cut the engine prompts via PasswordProvider at execution time.
         char[] sourceStorePassword = new char[0];
@@ -168,17 +164,6 @@ public final class ConvertWizardController {
                 vm.getOverwritePolicy(),
                 included,
                 entryPasswords);
-    }
-
-    // Default read helpers — overridden in Task 8 once the VM exposes target container/encoding.
-    private KeyStoreContainerType readTargetContainer() {
-        // Pre-Task-8: targetContainerType is not yet on the VM. The wizard controller is
-        // upgraded in Task 8 to read from the VM; this default keeps the contract obvious.
-        return KeyStoreContainerType.BCFKS;
-    }
-
-    private ContentEncoding readTargetEncoding() {
-        return ContentEncoding.BINARY;
     }
 
     /** Test seam: assign the preflight task factory. Production wires this in Task 4. */

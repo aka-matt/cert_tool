@@ -1,5 +1,7 @@
 package io.github.certtool.app.viewmodel;
 
+import io.github.certtool.domain.keystore.ContentEncoding;
+import io.github.certtool.domain.keystore.KeyStoreContainerType;
 import java.util.Objects;
 import javafx.beans.binding.Bindings;
 import javafx.beans.property.BooleanProperty;
@@ -55,6 +57,10 @@ public final class ConvertWizardViewModel extends ConvertViewModel {
     private final ReadOnlyStringWrapper stepTitle = new ReadOnlyStringWrapper();
     private final ObjectProperty<Base64Options> targetBase64Options =
             new SimpleObjectProperty<>(Base64Options.DEFAULT);
+    private final ObjectProperty<KeyStoreContainerType> targetContainerType =
+            new SimpleObjectProperty<>(KeyStoreContainerType.BCFKS);
+    private final ObjectProperty<ContentEncoding> targetEncoding =
+            new SimpleObjectProperty<>(ContentEncoding.BINARY);
 
     // nextEnabled is wired by the controller. It is exposed as a property so the view can bind
     // Next.disableProperty() to !nextEnabled.
@@ -115,5 +121,29 @@ public final class ConvertWizardViewModel extends ConvertViewModel {
 
     public void setTargetBase64Options(Base64Options o) {
         targetBase64Options.set(Objects.requireNonNull(o, "options"));
+    }
+
+    public ObjectProperty<KeyStoreContainerType> targetContainerTypeProperty() {
+        return targetContainerType;
+    }
+
+    public KeyStoreContainerType getTargetContainerType() {
+        return targetContainerType.get();
+    }
+
+    public void setTargetContainerType(KeyStoreContainerType v) {
+        targetContainerType.set(Objects.requireNonNull(v, "v"));
+    }
+
+    public ObjectProperty<ContentEncoding> targetEncodingProperty() {
+        return targetEncoding;
+    }
+
+    public ContentEncoding getTargetEncoding() {
+        return targetEncoding.get();
+    }
+
+    public void setTargetEncoding(ContentEncoding v) {
+        targetEncoding.set(Objects.requireNonNull(v, "v"));
     }
 }
